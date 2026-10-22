@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { config } from "./config.js";
+import { chatRoutes } from "./chat.js";
 import { management } from "./management.js";
 import { routes } from "./routes.js";
 
@@ -36,6 +37,7 @@ export async function buildApp() {
   });
   await routes(app);
   await management(app);
+  await chatRoutes(app);
   if (config.demoEnabled) {
     app.post("/demo/api/login", async (r, reply) => {
       const body = z

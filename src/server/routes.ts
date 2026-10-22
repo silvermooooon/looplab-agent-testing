@@ -204,7 +204,7 @@ export async function routes(app: FastifyInstance) {
           [pid],
         ),
         query(
-          "SELECT * FROM test_cases WHERE project_id=$1 ORDER BY created_at DESC",
+          "SELECT * FROM test_cases WHERE project_id=$1 AND NOT is_draft ORDER BY created_at DESC",
           [pid],
         ),
         query(

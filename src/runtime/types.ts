@@ -14,7 +14,13 @@ export interface ImageContent {
   data: string;
   mimeType: string;
 }
-export type Content = TextContent | ImageContent;
+export interface FileContent {
+  type: "file";
+  data: string;
+  mimeType: string;
+  filename: string;
+}
+export type Content = TextContent | ImageContent | FileContent;
 export interface AgentToolCall {
   type: "toolCall";
   id: string;

@@ -81,5 +81,26 @@ export async function migrate() {
       CREATE INDEX artifacts_run_idx ON artifacts(run_id,created_at);
       INSERT INTO qa.schema_migrations(version) VALUES(2);
     `);
+    const v3 = await c.query(
+      "SELECT 1 FROM qa.schema_migrations WHERE version=3",
+    );
+    if (!v3.rowCount)
+      await c.query(`
+      ALTER TABLE test_cases ADD COLUMN is_draft boolean NOT NULL DEFAULT false;
+      CREATE TABLE chat_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),project_id uuid NOT NULL REFERENCES projects(id),environment_id uuid NOT NULL REFERENCES environments(id),case_id uuid NOT NULL REFERENCES test_cases(id),repair_node_id uuid REFERENCES nodes(id),title text NOT NULL,created_by uuid NOT NULL REFERENCES users(id),archived_at timestamptz,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now());
+      CREATE INDEX chat_sessions_project_idx ON chat_sessions(project_id,environment_id,updated_at DESC);
+      ALTER TABLE runs ADD COLUMN conversation_id uuid REFERENCES chat_sessions(id);
+      ALTER TABLE runs ADD COLUMN events_complete boolean NOT NULL DEFAULT false;
+      UPDATE runs SET events_complete=true WHERE status NOT IN ('queued','running');
+      ALTER TABLE runs DROP CONSTRAINT runs_status_check;
+      ALTER TABLE runs ADD CONSTRAINT runs_status_check CHECK(status IN ('queued','running','passed','failed','cancelled','completed'));
+      CREATE INDEX runs_conversation_idx ON runs(conversation_id,created_at DESC) WHERE conversation_id IS NOT NULL;
+      CREATE UNIQUE INDEX chat_one_active_run ON runs(conversation_id) WHERE conversation_id IS NOT NULL AND status IN ('queued','running');
+      CREATE TABLE chat_messages(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),seq bigint GENERATED ALWAYS AS IDENTITY UNIQUE,conversation_id uuid NOT NULL REFERENCES chat_sessions(id),role text NOT NULL CHECK(role IN ('user','assistant')),content text NOT NULL DEFAULT '',run_id uuid NOT NULL REFERENCES runs(id),author_id uuid REFERENCES users(id),client_id uuid,created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(run_id,role),UNIQUE(conversation_id,author_id,client_id));
+      CREATE INDEX chat_messages_session_idx ON chat_messages(conversation_id,seq);
+      CREATE TABLE chat_attachments(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),conversation_id uuid NOT NULL REFERENCES chat_sessions(id),message_id uuid REFERENCES chat_messages(id),created_by uuid NOT NULL REFERENCES users(id),name text NOT NULL,mime_type text NOT NULL,size integer NOT NULL,data bytea NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
+      CREATE INDEX chat_attachments_session_idx ON chat_attachments(conversation_id,message_id);
+      INSERT INTO qa.schema_migrations(version) VALUES(3);
+    `);
   });
 }

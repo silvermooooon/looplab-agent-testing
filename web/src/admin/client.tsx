@@ -42,6 +42,7 @@ export const statusNames: Record<string, string> = {
   passed: "通过",
   failed: "失败",
   cancelled: "已取消",
+  completed: "已回复",
   owner: "所有者",
   editor: "编辑者",
   viewer: "只读成员",

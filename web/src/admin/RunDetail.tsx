@@ -61,6 +61,12 @@ export default function RunDetail({
     run_cancelled: "已取消",
     agent_tool_start: "Agent 调用工具",
     agent_tool_end: "Agent 工具完成",
+    agent_text: "流式回复",
+    agent_message: "Agent 回复",
+    agent_status: "Agent 进度",
+    conversation_completed: "对话完成",
+    node_saved: "保存节点",
+    flow_saved: "保存流程",
   };
   useEffect(() => {
     if (status && !["queued", "running"].includes(status)) {

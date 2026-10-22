@@ -35,15 +35,18 @@ import {
   History,
   Layers,
   LogOut,
+  MessageSquare,
   Users,
   Workflow,
 } from "lucide-react";
 import { api, Failure, queryClient, useApi } from "./admin/client";
 import "./admin/admin.css";
 const Projects = lazy(() => import("./admin/Projects"));
+const AgentChat = lazy(() => import("./admin/AgentChat"));
 const Resources = lazy(() => import("./admin/Resources"));
 const RunDetail = lazy(() => import("./admin/RunDetail"));
 export const sections = [
+  ["agent", "Agent 对话", MessageSquare],
   ["environments", "环境管理", Layers],
   ["cases", "测试用例", FlaskConical],
   ["nodes", "共享节点", Blocks],
@@ -330,6 +333,7 @@ function Shell({ user }: { user: any }) {
                         const next = new URLSearchParams(search);
                         next.set("env", value);
                         next.delete("run");
+                        next.delete("chat");
                         next.delete("page");
                         setSearch(next);
                       }}
@@ -374,6 +378,13 @@ function Shell({ user }: { user: any }) {
                       p.delete("run");
                       setSearch(p);
                     }}
+                  />
+                ) : section === "agent" ? (
+                  <AgentChat
+                    key={pid + "/" + selected}
+                    pid={pid}
+                    eid={selected}
+                    workspace={data}
                   />
                 ) : valid ? (
                   <Resources

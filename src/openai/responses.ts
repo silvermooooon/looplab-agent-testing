@@ -23,11 +23,17 @@ export function responseInput(messages: Message[]): ResponseInput {
         content: message.content.map((c) =>
           c.type === "text"
             ? { type: "input_text" as const, text: c.text }
-            : {
-                type: "input_image" as const,
-                image_url: `data:${c.mimeType};base64,${c.data}`,
-                detail: "auto" as const,
-              },
+            : c.type === "file"
+              ? {
+                  type: "input_file" as const,
+                  filename: c.filename,
+                  file_data: `data:${c.mimeType};base64,${c.data}`,
+                }
+              : {
+                  type: "input_image" as const,
+                  image_url: `data:${c.mimeType};base64,${c.data}`,
+                  detail: "auto" as const,
+                },
         ),
       });
     if (message.role === "toolResult")

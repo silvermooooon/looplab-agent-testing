@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   App,
@@ -64,6 +64,7 @@ export default function Resources({
   eid: string;
   workspace: any;
 }) {
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams(),
     [editor, setEditor] = useState<any>(null),
     [detail, setDetail] = useState<any>(null),
@@ -117,6 +118,20 @@ export default function Resources({
     }
   };
   const open = (kind: string, item?: any) => setEditor({ kind, item });
+  const chat = async (row?: any, repair = false) => {
+    const session = await api(`/projects/${pid}/chat/sessions`, "POST", {
+      environmentId: eid,
+      ...(row
+        ? repair
+          ? {
+              repairNodeId: row.node_id,
+              title: `修复：${row.name}`.slice(0, 120),
+            }
+          : { caseId: row.id, title: row.title.slice(0, 120) }
+        : {}),
+    });
+    navigate(`/projects/${pid}/agent?env=${eid}&chat=${session.id}`);
+  };
   const start = async (mode: string, row: any) => {
     const r = await api(`/projects/${pid}/runs`, "POST", {
       environmentId: eid,
@@ -245,9 +260,9 @@ export default function Resources({
               type="primary"
               size="small"
               disabled={!envEdit || actionBusy}
-              onClick={() => void perform(() => start("generate", r))}
+              onClick={() => void perform(() => chat(r))}
             >
-              Agent 生成并验证
+              与 Agent 生成
             </Button>
           </Space>
         ),
@@ -299,7 +314,10 @@ export default function Resources({
                 <Button type="link" onClick={() => open("nodes", r)}>
                   编辑新版本
                 </Button>
-                <Button type="link" onClick={() => open("repair", r)}>
+                <Button
+                  type="link"
+                  onClick={() => void perform(() => chat(r, true))}
+                >
                   Agent 修复
                 </Button>
               </>
@@ -468,14 +486,24 @@ export default function Resources({
         note={note}
         actions={
           create && (
-            <Button
-              type="primary"
-              icon={<Plus size={16} />}
-              disabled={!allowed}
-              onClick={() => open(section)}
-            >
-              {create}
-            </Button>
+            <Space>
+              {section === "flows" && (
+                <Button
+                  disabled={!envEdit || actionBusy}
+                  onClick={() => void perform(() => chat())}
+                >
+                  与 Agent 创建流程
+                </Button>
+              )}
+              <Button
+                type="primary"
+                icon={<Plus size={16} />}
+                disabled={!allowed}
+                onClick={() => open(section)}
+              >
+                {create}
+              </Button>
+            </Space>
           )
         }
       />

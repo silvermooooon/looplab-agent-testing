@@ -1,15 +1,16 @@
 # LoopLab · Agent Test Platform
 
-一个本地运行、通过浏览器使用的团队端到端测试平台。输入自然语言测试用例，由 GPT 6 Luna 探索真实页面，生成可复用节点和固定版本流程，再用 Playwright 独立回放验证。
+一个本地运行、通过浏览器使用的团队端到端测试平台。通过统一聊天界面输入自然语言目标、测试用例或附件，由 GPT 6 Luna 探索真实页面，生成可复用节点和固定版本流程，再用 Playwright 独立回放验证。
 
 应用代码全部使用 **TypeScript + Node.js**。用户、项目、知识库、节点版本、执行记录和截图共同保存在 **PostgreSQL**。Agent loop 从 pi 的核心源码移植到本项目维护，**不依赖任何 pi npm 包**。
 
-![LoopLab 环境管理](docs/images/environments.png)
+![LoopLab Agent 对话与测试结果](docs/images/agent-chat.png)
 
 ## 已实现
 
 - 邮箱/密码登录；项目目录、创建、编辑、归档与恢复；owner/editor/viewer 项目权限。
-- Ant Design 管理界面、TanStack Query 缓存、React Router 深链接；列表按需分页与搜索。
+- 独立 Agent 对话页：多轮讨论、文件/图片/PDF 输入、Responses 流式回复、实时执行动态、会话归档与团队共享。
+- Ant Design X 聊天组件与 Ant Design 管理界面、TanStack Query 缓存、React Router 深链接；列表按需分页与搜索。
 - 项目独立知识库，文本与 Markdown 导入、编辑。
 - 独立环境管理页；地址、变量与凭据键值表单；环境复制、归档和恢复；复制时同步复制节点版本和流程。
 - 自然语言用例 → 真实浏览器探索 → 生成参数化节点 → 组合流程 → 全新浏览器回放。
@@ -20,7 +21,7 @@
 - 执行时间线、失败截图、共享图片附件、JSON 报告和版本快照。
 - 仅 `gpt-6-luna` + OpenAI Responses API，支持流式响应、函数调用和 reasoning item 回传。
 
-详细的上游选型、性能测量和边界见 [管理 UI 审阅](docs/ui-review.md)。
+聊天功能与验收见 [Agent 对话入口](docs/agent-chat.md)。管理选型、性能测量和边界见 [管理 UI 审阅](docs/ui-review.md)。
 
 ## 本地启动
 
@@ -89,11 +90,11 @@ npm run dev:web
 
 1. 创建项目，在知识库描述产品操作路径与验证标准。
 2. 创建环境，填写真实目标 URL、变量、登录凭据。
-3. 新建测试用例，写清操作目标和预期结果。
-4. 点击“Agent 生成并验证”。Agent 先查询共享节点，缺少的能力才新建。
+3. 打开“Agent 对话”描述目标，也可上传测试文件、PDF、截图，或先讨论需求。
+4. 已有用例点击“与 Agent 生成”进入同一聊天页面。Agent 调查页面并查询共享节点，缺少的能力才新建。
 5. 在运行详情查看实际步骤、断言和截图。通过由独立回放结果决定。
 6. 后续使用“直接回放”，无需再次调用模型或生成节点。
-7. 页面更新造成节点失效时，在节点库选择“Agent 修复”。修复仅影响当前环境的新版本。
+7. 页面更新造成节点失效时，在节点库选择“Agent 修复”，进入聊天补充要求。修复仅影响当前环境的新版本。
 8. 通过“复制环境”复用资产，再单独调整新环境配置与节点实现。
 
 节点可使用 `navigate`、`fill`、`click`、`press`、`waitFor`、`assertText`、`assertVisible`、`extractText` 和 `screenshot`。变量支持：
@@ -109,11 +110,12 @@ npm run dev:web
 ## 验证
 
 ```bash
-npm test                   # 41 项离线测试，不调用模型
+npm test                   # 45 项离线测试，不调用模型
 npm run build              # 后端、前端严格 TS 检查与生产构建
 npm run demo               # 核心 agent loop 离线示例
 npm run test:live           # 真实 GPT 6 Luna Responses + 工具调用，会使用 API 配额
 npm run test:acceptance     # 服务运行时的完整验收，会创建测试用户/项目并调用真实模型
+npm run verify:chat         # 聊天、附件、流式状态、多轮复用真实验收
 npm run verify:export      # 验收后独立运行导出的 TS 脚本
 npm run verify:collaboration # 验收后启动第二个服务实例，验证共享队列和取消
 ```

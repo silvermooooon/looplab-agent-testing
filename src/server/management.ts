@@ -117,7 +117,7 @@ export async function management(app: FastifyInstance) {
         sql = `SELECT * FROM environments WHERE project_id=$1 AND (name ILIKE $2 OR base_url ILIKE $2) AND (archived_at IS NOT NULL)=$3 ORDER BY created_at DESC,id`;
         break;
       case "cases":
-        sql = `SELECT * FROM test_cases WHERE project_id=$1 AND (title ILIKE $2 OR instructions ILIKE $2) ORDER BY created_at DESC,id`;
+        sql = `SELECT * FROM test_cases WHERE project_id=$1 AND NOT is_draft AND (title ILIKE $2 OR instructions ILIKE $2) ORDER BY created_at DESC,id`;
         break;
       case "knowledge":
         sql = `SELECT * FROM knowledge WHERE project_id=$1 AND (title ILIKE $2 OR content ILIKE $2) ORDER BY updated_at DESC,id`;

@@ -725,3 +725,21 @@ test("low-level loop does not mutate caller history and validates configuration"
     /unique/,
   );
 });
+
+test("restored chat history is model context and never re-emitted as a fresh assistant reply", async () => {
+  const f = fixture([reply([text("new answer")])]);
+  const { agent, events } = harness({
+    streamFn: f.streamFn,
+    messages: [
+      { role: "user", content: [text("old question")], timestamp: 1 },
+      { ...reply([text("old answer")]), timestamp: 2 },
+      { role: "user", content: [text("follow-up")], timestamp: 3 },
+    ],
+  });
+  await agent.continue();
+  assert.equal(f.requests[0]!.messages.length, 3);
+  const ended = events.filter((e) => e.type === "message_end");
+  assert.equal(ended.length, 1);
+  assert.ok(ended[0]?.type === "message_end");
+  assert.deepEqual(ended[0].message.content, [text("new answer")]);
+});

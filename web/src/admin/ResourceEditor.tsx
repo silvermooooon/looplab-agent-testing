@@ -24,7 +24,6 @@ const names: Record<string, string> = {
   flows: "编排流程",
   knowledge: "知识文档",
   team: "项目成员",
-  repair: "修复节点",
 };
 const pairs = (obj: any) =>
   Object.entries(obj || {}).map(([key, value]) => ({ key, value }));
@@ -269,15 +268,6 @@ export default function ResourceEditor({
           email: v.email,
           role: v.role,
         });
-      if (kind === "repair") {
-        const r = await api(`/projects/${pid}/runs`, "POST", {
-          environmentId: eid,
-          caseId: v.caseId,
-          mode: "repair",
-          repairNodeId: item.node_id,
-        });
-        return { runId: r.id };
-      }
     },
     onSuccess: onSaved,
   });
@@ -288,7 +278,7 @@ export default function ResourceEditor({
       width={kind === "flows" || kind === "nodes" ? 820 : 660}
       onCancel={onClose}
       onOk={() => form.submit()}
-      okText={kind === "repair" ? "开始修复" : "保存"}
+      okText="保存"
       cancelText="取消"
       confirmLoading={save.isPending}
       okButtonProps={{ disabled: !canEdit }}
@@ -466,7 +456,7 @@ export default function ResourceEditor({
             </Form.Item>
           </>
         )}
-        {["flows", "repair"].includes(kind) && (
+        {kind === "flows" && (
           <Form.Item name="caseId" label="测试用例" rules={required}>
             <RemoteSelect
               pid={pid}
@@ -477,12 +467,7 @@ export default function ResourceEditor({
             />
           </Form.Item>
         )}
-        {kind === "repair" && (
-          <Alert
-            type="info"
-            title={`修复「${item.name}」在当前环境的节点，新版本会保留原有断言，再通过浏览器重放验证。`}
-          />
-        )}
+
         {kind === "flows" && (
           <>
             <Alert
