@@ -47,3 +47,7 @@
 10. 类型和协议只覆盖当前测试运行时需要的子集，**不是 pi API 的完整兼容实现**。没有移植 proxy、coding-agent、MCP 装配、动态工具声明、prepareNextTurn、模型用量统计、reasoning 专用事件或会话落盘恢复。
 
 后续合并上游修复时应手动审阅相关源码差异，更新基准与文件摘要，并运行本地行为测试。当前版本的运行、编译和测试不需要原始 pi checkout 存在。
+
+## 管理界面依赖与参考
+
+Ant Design、TanStack Query、React Router 均通过 npm 直接使用（MIT），版本锁定于 package-lock.json，许可随各包分发。Ant Design Pro 的 table-list 页面用于结构和交互参考，未复制模板源码；上游提交、文件链接与具体复用范围见 [UI 审阅](docs/ui-review.md)。

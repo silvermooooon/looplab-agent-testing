@@ -14,6 +14,8 @@ import {
   HttpError,
   requireMember,
   environment,
+  activeEnvironment,
+  lockActiveScope,
   latestNodes,
   saveNode,
   saveFlow,
@@ -45,6 +47,12 @@ const envInput = z
     baseUrl: url,
     variables: credentials.default({}),
     secrets: credentials.optional(),
+    secretChanges: z
+      .object({
+        set: credentials.default({}),
+        remove: z.array(z.string()).max(50).default([]),
+      })
+      .optional(),
   })
   .strict();
 declare module "fastify" {
@@ -283,26 +291,37 @@ export async function routes(app: FastifyInstance) {
   app.put("/api/projects/:pid/environments/:eid", async (r) => {
     const pid = path(r, "pid");
     await requireMember(pid, uid(r), true);
-    const env = await environment(pid, path(r, "eid"));
+    const env = await activeEnvironment(pid, path(r, "eid"));
     const body = envInput.parse(r.body);
-    await query(
-      "UPDATE environments SET name=$1,base_url=$2,variables=$3,secrets_encrypted=$4 WHERE id=$5",
-      [
-        body.name,
-        body.baseUrl,
-        JSON.stringify(body.variables),
-        body.secrets === undefined
-          ? env.secrets_encrypted
-          : encryptSecrets(body.secrets),
-        env.id,
-      ],
-    );
+    await transaction(async (c) => {
+      const current = (
+        await c.query(
+          "SELECT secrets_encrypted FROM environments WHERE id=$1 FOR UPDATE",
+          [env.id],
+        )
+      ).rows[0];
+      const secrets = body.secrets ?? decryptSecrets(current.secrets_encrypted);
+      body.secretChanges?.remove.forEach((key) => delete secrets[key]);
+      Object.assign(secrets, body.secretChanges?.set ?? {});
+      if (Object.keys(secrets).length > 50)
+        throw new HttpError(400, "最多 50 个凭据");
+      await c.query(
+        "UPDATE environments SET name=$1,base_url=$2,variables=$3,secrets_encrypted=$4 WHERE id=$5",
+        [
+          body.name,
+          body.baseUrl,
+          JSON.stringify(body.variables),
+          encryptSecrets(secrets),
+          env.id,
+        ],
+      );
+    });
     return { ok: true };
   });
   app.post("/api/projects/:pid/environments/:eid/clone", async (r) => {
     const pid = path(r, "pid");
     await requireMember(pid, uid(r), true);
-    const source = await environment(pid, path(r, "eid"));
+    const source = await activeEnvironment(pid, path(r, "eid"));
     const body = z
       .object({ name, baseUrl: url, copySecrets: z.boolean().default(false) })
       .parse(r.body);
@@ -472,7 +491,7 @@ export async function routes(app: FastifyInstance) {
         repairNodeId: id.optional(),
       })
       .parse(r.body);
-    await environment(pid, b.environmentId);
+    await activeEnvironment(pid, b.environmentId);
     if (
       !(await one("SELECT id FROM test_cases WHERE id=$1 AND project_id=$2", [
         b.caseId,
@@ -495,21 +514,29 @@ export async function routes(app: FastifyInstance) {
       ]))
     )
       throw new HttpError(400, "请选择待修复节点");
-    return one(
-      "INSERT INTO runs(project_id,environment_id,case_id,mode,flow_id,repair_node_id,requested_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
-      [
-        pid,
-        b.environmentId,
-        b.caseId,
-        b.mode,
-        b.flowId ?? null,
-        b.repairNodeId ?? null,
-        uid(r),
-      ],
-    );
+    return transaction(async (c) => {
+      await lockActiveScope(c, pid, b.environmentId);
+      return (
+        await c.query(
+          "INSERT INTO runs(project_id,environment_id,case_id,mode,flow_id,repair_node_id,requested_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+          [
+            pid,
+            b.environmentId,
+            b.caseId,
+            b.mode,
+            b.flowId ?? null,
+            b.repairNodeId ?? null,
+            uid(r),
+          ],
+        )
+      ).rows[0];
+    });
   });
   app.get("/api/runs/:rid", async (r) => {
-    const run = await one("SELECT * FROM runs WHERE id=$1", [path(r, "rid")]);
+    const run = await one(
+      "SELECT r.*,c.title AS case_title,e.name AS environment_name FROM runs r JOIN test_cases c ON c.id=r.case_id JOIN environments e ON e.id=r.environment_id WHERE r.id=$1",
+      [path(r, "rid")],
+    );
     if (!run) throw new HttpError(404, "运行不存在");
     await requireMember(run.project_id, uid(r));
     const after = z.coerce
@@ -518,12 +545,17 @@ export async function routes(app: FastifyInstance) {
       .min(0)
       .default(0)
       .parse((r.query as any).after);
+    const incremental = (r.query as any).incremental === "true";
+    const events = await query(
+      "SELECT id,kind,data,created_at FROM run_events WHERE run_id=$1 AND id>$2 ORDER BY id LIMIT $3",
+      [run.id, after, incremental ? 250 : 10000],
+    );
+    const { snapshot, ...summary } = run;
     return {
-      run,
-      events: await query(
-        "SELECT id,kind,data,created_at FROM run_events WHERE run_id=$1 AND id>$2 ORDER BY id LIMIT 10000",
-        [run.id, after],
-      ),
+      run: incremental ? summary : run,
+      nextCursor: events.at(-1)?.id ?? String(after),
+      hasMore: events.length === (incremental ? 250 : 10000),
+      events,
       artifacts: await query(
         "SELECT id,name,mime_type,created_at FROM artifacts WHERE run_id=$1 ORDER BY created_at",
         [run.id],
@@ -531,7 +563,10 @@ export async function routes(app: FastifyInstance) {
     };
   });
   app.post("/api/runs/:rid/cancel", async (r) => {
-    const run = await one("SELECT * FROM runs WHERE id=$1", [path(r, "rid")]);
+    const run = await one(
+      "SELECT r.*,c.title AS case_title,e.name AS environment_name FROM runs r JOIN test_cases c ON c.id=r.case_id JOIN environments e ON e.id=r.environment_id WHERE r.id=$1",
+      [path(r, "rid")],
+    );
     if (!run) throw new HttpError(404, "运行不存在");
     await requireMember(run.project_id, uid(r), true);
     await cancelRun(run.id);

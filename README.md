@@ -4,13 +4,14 @@
 
 应用代码全部使用 **TypeScript + Node.js**。用户、项目、知识库、节点版本、执行记录和截图共同保存在 **PostgreSQL**。Agent loop 从 pi 的核心源码移植到本项目维护，**不依赖任何 pi npm 包**。
 
-![LoopLab 共享节点工作台](docs/images/workspace.png)
+![LoopLab 环境管理](docs/images/environments.png)
 
 ## 已实现
 
-- 邮箱/密码登录、项目创建、owner/editor/viewer 项目权限。
+- 邮箱/密码登录；项目目录、创建、编辑、归档与恢复；owner/editor/viewer 项目权限。
+- Ant Design 管理界面、TanStack Query 缓存、React Router 深链接；列表按需分页与搜索。
 - 项目独立知识库，文本与 Markdown 导入、编辑。
-- 多环境地址、变量、加密凭据；复制环境时同步复制节点版本和流程。
+- 独立环境管理页；地址、变量与凭据键值表单；环境复制、归档和恢复；复制时同步复制节点版本和流程。
 - 自然语言用例 → 真实浏览器探索 → 生成参数化节点 → 组合流程 → 全新浏览器回放。
 - 按项目共享节点；环境独立版本；流程固定引用版本；相同 spec 复用已有版本。
 - 无需模型的确定性流程回放；导出独立 TypeScript/Playwright 脚本。
@@ -18,6 +19,8 @@
 - PostgreSQL 任务队列、取消、心跳、进程异常后的失败标记。
 - 执行时间线、失败截图、共享图片附件、JSON 报告和版本快照。
 - 仅 `gpt-6-luna` + OpenAI Responses API，支持流式响应、函数调用和 reasoning item 回传。
+
+详细的上游选型、性能测量和边界见 [管理 UI 审阅](docs/ui-review.md)。
 
 ## 本地启动
 
@@ -138,3 +141,11 @@ test/              离线行为测试
 完整实现边界与数据设计见 [架构说明](docs/architecture.md)。pi 基准提交、移植映射与本地差异见 [第三方声明](THIRD_PARTY_NOTICES.md)；原 MIT 许可保存在 [licenses/pi-MIT.txt](licenses/pi-MIT.txt)。
 
 Responses 适配参考 [GPT 6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna)、[函数调用](https://developers.openai.com/api/docs/guides/function-calling) 和 [流式响应](https://developers.openai.com/api/docs/guides/streaming-responses) 官方文档。
+
+管理功能回归（服务已启动且启用 DEMO_TARGET_ENABLED，无模型调用）：
+
+```bash
+npm run verify:management
+```
+
+构建会预生成 Brotli/gzip 静态资源；哈希资产长期缓存，HTML 重新验证。

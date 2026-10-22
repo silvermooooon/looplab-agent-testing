@@ -270,21 +270,22 @@ try {
   await page.goto(base);
   await page.getByLabel("邮箱", { exact: true }).fill(owner.email);
   await page.getByLabel("密码", { exact: true }).fill(owner.password);
-  await page.getByRole("button", { name: "登录工作台" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Agent Chat · 验收项目" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "共享节点", exact: false }).click();
-  await expect(page.locator(".node-card")).toHaveCount(nodeCount);
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "项目管理" })).toBeVisible();
+  await page.goto(`${base}/projects/${pid}/nodes?env=${env.id}`);
+  await expect(page.locator("tbody tr.ant-table-row")).toHaveCount(nodeCount);
   await page.screenshot({ path: ".data/workspace.png", fullPage: true });
-  await page.getByRole("button", { name: "测试流程", exact: true }).click();
-  await expect(page.locator(".flow-card").first()).toBeVisible();
+  await page.getByRole("link", { name: "测试流程", exact: true }).click();
+  await expect(page.locator("tbody tr.ant-table-row").first()).toBeVisible();
   await page.getByRole("button", { name: "编辑副本" }).first().click();
   await expect(page.getByRole("dialog")).toBeVisible();
-  await page.getByLabel("关闭对话框").click();
-  await page.getByRole("button", { name: "运行记录", exact: true }).click();
-  await page.locator("tbody tr").first().click();
-  await expect(page.getByRole("heading", { name: "执行时间线" })).toBeVisible();
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByRole("link", { name: "运行记录", exact: true }).click();
+  await page
+    .getByRole("button", { name: "查看报告", exact: true })
+    .first()
+    .click();
+  await expect(page.getByRole("heading", { name: "执行事件" })).toBeVisible();
   await page.screenshot({ path: ".data/run-report.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: ".data/mobile.png", fullPage: true });

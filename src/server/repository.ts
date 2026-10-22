@@ -1,3 +1,4 @@
+import type { PoolClient } from "pg";
 import { query, one, transaction } from "./db.js";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -31,6 +32,12 @@ export async function requireMember(
     (owner && member.role !== "owner")
   )
     throw new HttpError(403, "没有此项目的操作权限");
+  if (
+    edit &&
+    (await one("SELECT archived_at FROM projects WHERE id=$1", [projectId]))
+      ?.archived_at
+  )
+    throw new HttpError(409, "项目已归档，请先恢复项目");
   return member.role as string;
 }
 export async function environment(projectId: string, environmentId: string) {
@@ -40,6 +47,35 @@ export async function environment(projectId: string, environmentId: string) {
   );
   if (!env) throw new HttpError(404, "环境不存在");
   return env;
+}
+export async function activeEnvironment(
+  projectId: string,
+  environmentId: string,
+) {
+  const env = await environment(projectId, environmentId);
+  if (env.archived_at) throw new HttpError(409, "环境已归档，请先恢复环境");
+  return env;
+}
+// Match the lock order used by project/environment archive transitions.
+export async function lockActiveScope(
+  c: PoolClient,
+  projectId: string,
+  envId: string,
+) {
+  const project = (
+    await c.query("SELECT archived_at FROM projects WHERE id=$1 FOR SHARE", [
+      projectId,
+    ])
+  ).rows[0];
+  const env = (
+    await c.query(
+      "SELECT archived_at FROM environments WHERE id=$1 AND project_id=$2 FOR SHARE",
+      [envId, projectId],
+    )
+  ).rows[0];
+  if (!project || !env) throw new HttpError(404, "项目或环境不存在");
+  if (project.archived_at || env.archived_at)
+    throw new HttpError(409, "项目或环境已归档，请先恢复");
 }
 export async function latestNodes(projectId: string, environmentId: string) {
   return query(
@@ -55,8 +91,9 @@ export async function saveNode(
   input: { key: string; name: string; description: string; spec: NodeSpec },
 ) {
   const spec = specSchema.parse(input.spec);
-  await environment(projectId, envId);
+  await activeEnvironment(projectId, envId);
   return transaction(async (c) => {
+    await lockActiveScope(c, projectId, envId);
     await c.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       `${projectId}:${input.key}:${envId}`,
     ]);
@@ -132,6 +169,7 @@ export async function saveFlow(
   name: string,
   steps: FlowStep[],
 ) {
+  await activeEnvironment(projectId, envId);
   await resolveSteps(projectId, envId, steps);
   if (
     !(await one("SELECT id FROM test_cases WHERE id=$1 AND project_id=$2", [
@@ -140,8 +178,13 @@ export async function saveFlow(
     ]))
   )
     throw new HttpError(404, "测试用例不存在");
-  return one(
-    "INSERT INTO flows(project_id,environment_id,case_id,name,steps,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
-    [projectId, envId, caseId, name, JSON.stringify(steps), userId],
-  );
+  return transaction(async (c) => {
+    await lockActiveScope(c, projectId, envId);
+    return (
+      await c.query(
+        "INSERT INTO flows(project_id,environment_id,case_id,name,steps,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
+        [projectId, envId, caseId, name, JSON.stringify(steps), userId],
+      )
+    ).rows[0];
+  });
 }

@@ -45,8 +45,8 @@ export async function migrate() {
     const exists = await c.query(
       "SELECT 1 FROM qa.schema_migrations WHERE version=1",
     );
-    if (exists.rowCount) return;
-    await c.query(`
+    if (!exists.rowCount) {
+      await c.query(`
       CREATE TABLE users(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), email text NOT NULL UNIQUE, name text NOT NULL, password_hash text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
       CREATE TABLE sessions(token_hash text PRIMARY KEY, user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at timestamptz NOT NULL);
       CREATE TABLE projects(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL, description text NOT NULL DEFAULT '', created_at timestamptz NOT NULL DEFAULT now());
@@ -64,6 +64,22 @@ export async function migrate() {
       CREATE INDEX run_events_run_idx ON run_events(run_id,id);
       CREATE TABLE artifacts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), run_id uuid NOT NULL REFERENCES runs(id) ON DELETE CASCADE, name text NOT NULL, mime_type text NOT NULL, data bytea NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
       INSERT INTO qa.schema_migrations(version) VALUES(1);
+    `);
+    }
+    const v2 = await c.query(
+      "SELECT 1 FROM qa.schema_migrations WHERE version=2",
+    );
+    if (!v2.rowCount)
+      await c.query(`
+      ALTER TABLE projects ADD COLUMN archived_at timestamptz;
+      ALTER TABLE environments ADD COLUMN archived_at timestamptz;
+      CREATE INDEX members_user_idx ON members(user_id,project_id);
+      CREATE INDEX cases_project_idx ON test_cases(project_id,created_at DESC);
+      CREATE INDEX knowledge_project_idx ON knowledge(project_id,updated_at DESC);
+      CREATE INDEX flows_environment_idx ON flows(project_id,environment_id,created_at DESC);
+      CREATE INDEX runs_environment_idx ON runs(project_id,environment_id,created_at DESC);
+      CREATE INDEX artifacts_run_idx ON artifacts(run_id,created_at);
+      INSERT INTO qa.schema_migrations(version) VALUES(2);
     `);
   });
 }

@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { config } from "./config.js";
+import { management } from "./management.js";
 import { routes } from "./routes.js";
 
 export async function buildApp() {
@@ -19,13 +20,11 @@ export async function buildApp() {
   });
   app.setErrorHandler((error: any, _r, reply) => {
     if (error instanceof z.ZodError)
-      return reply
-        .code(400)
-        .send({
-          error: error.issues
-            .map((i) => `${i.path.join(".")}: ${i.message}`)
-            .join("; "),
-        });
+      return reply.code(400).send({
+        error: error.issues
+          .map((i) => `${i.path.join(".")}: ${i.message}`)
+          .join("; "),
+      });
     if (error.code === "23505")
       return reply
         .code(409)
@@ -36,6 +35,7 @@ export async function buildApp() {
     return reply.code(500).send({ error: "服务处理失败，请检查服务器日志" });
   });
   await routes(app);
+  await management(app);
   if (config.demoEnabled) {
     app.post("/demo/api/login", async (r, reply) => {
       const body = z
@@ -71,9 +71,24 @@ export async function buildApp() {
   }
   const webRoot = resolve("web-dist");
   if (existsSync(webRoot)) {
-    await app.register(staticFiles, { root: webRoot, prefix: "/" });
+    await app.register(staticFiles, {
+      root: webRoot,
+      prefix: "/",
+      preCompressed: true,
+      cacheControl: false,
+      setHeaders(res, filePath) {
+        res.setHeader(
+          "Cache-Control",
+          filePath.includes("/assets/")
+            ? "public, max-age=31536000, immutable"
+            : "no-cache",
+        );
+        res.setHeader("Vary", "Accept-Encoding");
+      },
+    });
     app.setNotFoundHandler(async (r, reply) => {
       if (
+        r.url.startsWith("/assets/") ||
         r.url.startsWith("/api/") ||
         r.url.startsWith("/demo/api/") ||
         (r.url.startsWith("/demo") && !config.demoEnabled)
