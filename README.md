@@ -23,6 +23,8 @@
 
 聊天功能与验收见 [Agent 对话入口](docs/agent-chat.md)。管理选型、性能测量和边界见 [管理 UI 审阅](docs/ui-review.md)。
 
+可以将独立运行的 LoopLab 实例作为被测项目，由平台自身生成和重放测试。配置与验证方法见 [自举测试](docs/self-testing.md)。
+
 ## 本地启动
 
 需要 Node.js **22+**（推荐 24）、npm 和 PostgreSQL。已在 Node.js 24.19、PostgreSQL 18.6、Google Chrome 上完成验收。
@@ -116,6 +118,7 @@ npm run demo               # 核心 agent loop 离线示例
 npm run test:live           # 真实 GPT 6 Luna Responses + 工具调用，会使用 API 配额
 npm run test:acceptance     # 服务运行时的完整验收，会创建测试用户/项目并调用真实模型
 npm run verify:chat         # 聊天、附件、流式状态、多轮复用真实验收
+npm run verify:self         # 独立 LoopLab 实例的真实自举测试
 npm run verify:export      # 验收后独立运行导出的 TS 脚本
 npm run verify:collaboration # 验收后启动第二个服务实例，验证共享队列和取消
 ```
