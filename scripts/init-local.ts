@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 // Explicit local bootstrap. Never replace an existing configuration or database.
 if (existsSync(".env.local"))
   throw new Error(".env.local already exists; not overwriting it.");
@@ -31,7 +31,15 @@ try {
 }
 writeFileSync(
   ".env.local",
-  `DATABASE_URL=postgresql://looplab:${password}@127.0.0.1:5432/looplab\nAPP_SECRET=${randomBytes(32).toString("hex")}\nOPENAI_API_KEY=\nOPENAI_BASE_URL=https://api.openai.com/v1\nHOST=127.0.0.1\nPORT=4310\nDEMO_TARGET_ENABLED=false\n`,
+  readFileSync(".env.example", "utf8")
+    .replace(
+      /^DATABASE_URL=.*$/m,
+      `DATABASE_URL=postgresql://looplab:${password}@127.0.0.1:5432/looplab`,
+    )
+    .replace(
+      /^APP_SECRET=.*$/m,
+      `APP_SECRET=${randomBytes(32).toString("hex")}`,
+    ),
   { mode: 0o600 },
 );
 console.log(

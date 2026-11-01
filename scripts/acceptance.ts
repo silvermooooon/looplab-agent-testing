@@ -308,7 +308,7 @@ await writeFile(
     {
       checkedAt: new Date().toISOString(),
       projectId: pid,
-      model: "gpt-6-luna",
+      model: config.model,
       checks,
       runIds: {
         generated: generated.id,

@@ -95,19 +95,23 @@ function Session() {
     );
   if (user.error)
     return <Failure error={user.error} retry={() => void user.refetch()} />;
-  if (!user.data?.user) return <Auth />;
+  const model = user.data?.model || "";
+  if (!user.data?.user) return <Auth model={model} />;
   return (
     <Routes>
-      <Route path="/projects" element={<Shell user={user.data.user} />} />
+      <Route
+        path="/projects"
+        element={<Shell user={user.data.user} model={model} />}
+      />
       <Route
         path="/projects/:pid/:section"
-        element={<Shell user={user.data.user} />}
+        element={<Shell user={user.data.user} model={model} />}
       />
       <Route path="*" element={<Navigate to="/projects" replace />} />
     </Routes>
   );
 }
-function Auth() {
+function Auth({ model }: { model: string }) {
   const [register, setRegister] = useState(false),
     [pending, setPending] = useState(false),
     [error, setError] = useState<Error | null>(null);
@@ -119,7 +123,7 @@ function Auth() {
         <Typography.Title>LoopLab</Typography.Title>
         <h2>把一次探索，变成团队可复用的测试。</h2>
         <p>项目知识库 · 环境隔离 · 共享节点 · 真实浏览器验证</p>
-        <Tag color="green">GPT 6 Luna / Responses API</Tag>
+        <Tag color="green">{model ? `${model} / ` : ""}Responses API</Tag>
       </div>
       <div className="auth-form">
         <Typography.Title level={2}>
@@ -189,7 +193,7 @@ function Auth() {
     </div>
   );
 }
-function Shell({ user }: { user: any }) {
+function Shell({ user, model }: { user: any; model: string }) {
   const [collapsed, setCollapsed] = useState(
     () => window.matchMedia("(max-width: 991px)").matches,
   );
@@ -257,7 +261,8 @@ function Shell({ user }: { user: any }) {
         />
         <div className="sidebar-caption">
           <span className="online-dot" />
-          GPT 6 Luna<p>共享 PostgreSQL · 浏览器执行</p>
+          {model || "Responses API"}
+          <p>共享 PostgreSQL · 浏览器执行</p>
         </div>
       </Layout.Sider>
       <Layout>
@@ -286,7 +291,7 @@ function Shell({ user }: { user: any }) {
                   cache.removeQueries({
                     predicate: (q) => q.queryKey[0] !== "session",
                   });
-                  cache.setQueryData(["session"], { user: null });
+                  cache.setQueryData(["session"], { user: null, model });
                   navigate("/projects");
                 } catch (e) {
                   message.error((e as Error).message);
@@ -385,6 +390,7 @@ function Shell({ user }: { user: any }) {
                     pid={pid}
                     eid={selected}
                     workspace={data}
+                    model={model}
                   />
                 ) : valid ? (
                   <Resources

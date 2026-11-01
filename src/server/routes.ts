@@ -108,10 +108,13 @@ export async function routes(app: FastifyInstance) {
   });
   app.get("/api/health", async () => ({
     ok: true,
-    model: "gpt-6-luna",
+    model: config.model,
     database: !!(await one("SELECT 1")),
   }));
-  app.get("/api/auth/me", async (r) => ({ user: r.currentUser ?? null }));
+  app.get("/api/auth/me", async (r) => ({
+    user: r.currentUser ?? null,
+    model: config.model,
+  }));
   app.post(
     "/api/auth/register",
     { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
@@ -131,7 +134,7 @@ export async function routes(app: FastifyInstance) {
         "INSERT INTO users(email,name,password_hash) VALUES($1,$2,$3) RETURNING id,email,name",
         [body.email, body.name, hashPassword(body.password)],
       );
-      return { user: await session(reply, user) };
+      return { user: await session(reply, user), model: config.model };
     },
   );
   app.post(
@@ -152,7 +155,7 @@ export async function routes(app: FastifyInstance) {
       ]);
       if (!user || !verifyPassword(body.password, user.password_hash))
         throw new HttpError(401, "邮箱或密码错误");
-      return { user: await session(reply, user) };
+      return { user: await session(reply, user), model: config.model };
     },
   );
   app.post("/api/auth/logout", async (r, reply) => {

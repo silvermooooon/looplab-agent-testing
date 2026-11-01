@@ -15,7 +15,7 @@
 | 登录、创建项目、多人协作 | 用户、session、项目成员和服务端权限检查                                                        |
 | 项目独立知识库           | 文本/Markdown 知识条目，支持文件文本导入；只注入当前项目知识                                   |
 | 多部署环境               | 独立 URL、变量、加密凭据和节点实现版本                                                         |
-| 输入自然语言测试用例     | 用例标题和目标/预期结果；GPT 6 Luna 解读                                                       |
+| 输入自然语言测试用例     | 用例标题和目标/预期结果；默认 GPT 6 Luna 解读                                                       |
 | Agent 登录真实网站并探索 | Playwright 独立 BrowserContext；DOM/可访问性树与真实页面操作工具                               |
 | 生成可重复执行脚本       | Agent 产出经过 schema 校验的节点 spec，固定版本组成流程；可导出独立 TypeScript/Playwright 脚本 |
 | 节点复用                 | 优先查询节点库；节点参数化；回放时无需模型                                                     |
@@ -23,7 +23,7 @@
 | 环境复制                 | 在事务内复制所有节点版本和流程，重映射 revision ID；凭据复制由用户显式选择                     |
 | 执行与报告               | 共享队列、步骤状态、失败原因、截图、JSON 报告和版本快照                                        |
 | pi 核心复用              | 从固定提交移植到 `src/runtime`；无 pi npm 依赖                                                 |
-| 单模型单协议             | 固定 `gpt-6-luna`，仅 OpenAI Responses；使用官方 SDK 处理 HTTP/SSE，不使用 SDK 的 Agent loop   |
+| 单模型单协议             | 默认 `gpt-6-luna`，模型名独立配置；仅 OpenAI Responses，不使用 SDK 的 Agent loop   |
 
 ## 运行结构
 
@@ -33,7 +33,7 @@ flowchart LR
   API --> PG[(PostgreSQL / qa schema)]
   Worker[Node.js 后台执行器] --> PG
   Worker --> Loop[项目内 Agent loop]
-  Loop --> Responses[GPT 6 Luna / Responses API]
+  Loop --> Responses[默认 GPT 6 Luna / Responses API]
   Loop --> Tools[浏览器探索与节点管理工具]
   Worker --> Replay[固定版本流程回放]
   Tools --> Browser[Playwright 独立浏览器会话]

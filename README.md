@@ -1,6 +1,6 @@
 # LoopLab · Agent Test Platform
 
-一个本地运行、通过浏览器使用的团队端到端测试平台。通过统一聊天界面输入自然语言目标、测试用例或附件，由 GPT 6 Luna 探索真实页面，生成可复用节点和固定版本流程，再用 Playwright 独立回放验证。
+一个本地运行、通过浏览器使用的团队端到端测试平台。通过统一聊天界面输入自然语言目标、测试用例或附件，由默认的 GPT 6 Luna 探索真实页面，生成可复用节点和固定版本流程，再用 Playwright 独立回放验证。
 
 应用代码全部使用 **TypeScript + Node.js**。用户、项目、知识库、节点版本、执行记录和截图共同保存在 **PostgreSQL**。Agent loop 从 pi 的核心源码移植到本项目维护，**不依赖任何 pi npm 包**。
 
@@ -19,7 +19,7 @@
 - 指定节点的 Agent 修复，保留断言要求与其他节点引用，创建新版本后验证。
 - PostgreSQL 任务队列、取消、心跳、进程异常后的失败标记。
 - 执行时间线、失败截图、共享图片附件、JSON 报告和版本快照。
-- 仅 `gpt-6-luna` + OpenAI Responses API，支持流式响应、函数调用和 reasoning item 回传。
+- 默认 `gpt-6-luna`，使用 OpenAI Responses API，支持流式响应、函数调用和 reasoning item 回传。
 
 聊天功能与验收见 [Agent 对话入口](docs/agent-chat.md)。管理选型、性能测量和边界见 [管理 UI 审阅](docs/ui-review.md)。
 
@@ -34,21 +34,29 @@ npm ci
 cp .env.example .env.local
 ```
 
-编辑 `.env.local`：
+编辑 `.env.local`。AI 调用有三个独立配置：
 
-| 配置                  | 用途                                                             |
-| --------------------- | ---------------------------------------------------------------- |
-| `DATABASE_URL`        | 专用 PostgreSQL 数据库连接地址；支持远程数据库                   |
-| `APP_SECRET`          | 至少 32 个随机字符；加密环境凭据；共享数据库的实例必须一致       |
-| `OPENAI_API_KEY`      | OpenAI API Key；只在服务器使用                                   |
-| `OPENAI_BASE_URL`     | Responses API 的基础地址，默认 `https://api.openai.com/v1`       |
-| `OPENAI_ENV_FILE`     | 可选：直接读取已有 env 文件中的 API Key 和基础地址，无需复制密钥 |
-| `HOST` / `PORT`       | 默认 `127.0.0.1:4310`                                            |
-| `PLAYWRIGHT_CHANNEL`  | 使用本机 Chrome 时设为 `chrome`；留空使用 Playwright Chromium    |
-| `DEMO_TARGET_ENABLED` | 是否启用验收用的 `/demo` 对话平台，默认 false                    |
-| `COOKIE_SECURE`       | HTTPS 部署设为 true                                              |
+| 配置              | 用途                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------ |
+| `OPENAI_BASE_URL` | Responses API 基础地址；留空时使用外部配置文件中的地址，或默认 `https://api.openai.com/v1` |
+| `OPENAI_API_KEY`  | API 密钥；只在服务器使用                                                                   |
+| `OPENAI_MODEL`    | Responses 请求中的模型名称，默认 `gpt-6-luna`                                              |
 
-应用配置优先级为进程环境 > `.env.local`；OpenAI 专用配置不存在时，才读取 `OPENAI_ENV_FILE`。模型固定在代码中，不能通过环境变量切换。
+其他配置：
+
+| 配置                  | 用途                                                          |
+| --------------------- | ------------------------------------------------------------- |
+| `DATABASE_URL`        | 专用 PostgreSQL 数据库连接地址；支持远程数据库                |
+| `APP_SECRET`          | 至少 32 个随机字符；加密环境凭据；共享数据库的实例必须一致    |
+| `OPENAI_ENV_FILE`     | 可选：从已有 env 文件读取未单独配置的 AI 参数                 |
+| `HOST`                | 服务监听地址，默认 `127.0.0.1`                                |
+| `PORT`                | 服务监听端口，默认 `4310`                                     |
+| `PLAYWRIGHT_CHANNEL`  | 使用本机 Chrome 时设为 `chrome`；留空使用 Playwright Chromium |
+| `RUN_TIMEOUT_MS`      | 单次运行的总超时，默认 `600000` 毫秒                          |
+| `DEMO_TARGET_ENABLED` | 是否启用验收用的 `/demo` 对话平台，默认 false                 |
+| `COOKIE_SECURE`       | HTTPS 部署设为 true                                           |
+
+AI 三项参数分别按非空的进程环境变量 > `.env.local` > `OPENAI_ENV_FILE` 读取；没有设置时，Base URL 和模型使用上述默认值。模板中 `OPENAI_BASE_URL` 留空，因此使用外部凭据文件时不会遮盖其中的地址。应用只实现 Responses API 接入；模型默认使用 `gpt-6-luna`，其他模型或网关别名需要支持本项目使用的 Responses 功能。
 
 如果已有本地 Docker PostgreSQL，可以先运行以下命令自动创建专用角色、数据库和 `.env.local`（已有配置时拒绝覆盖）：
 
@@ -129,7 +137,7 @@ GitHub Actions 构建配置保留在 `docs/ci-workflow.template.yml`。该模板
 
 ```text
 src/runtime/        从 pi 移植并维护的 Agent loop、工具管线、消息队列
-src/openai/         固定 GPT 6 Luna 的 Responses 流适配
+src/openai/         Responses 流适配，默认 GPT 6 Luna
 src/testing/        节点 schema、Playwright 执行器、TS 导出
 src/server/         API、身份与权限、数据库迁移、共享任务执行器
 web/                React 管理工作台与演示目标

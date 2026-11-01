@@ -25,7 +25,10 @@ export async function api(
   });
   const data = await r.json();
   if (r.status === 401 && !path.startsWith("/auth/"))
-    queryClient.setQueryData(["session"], { user: null });
+    queryClient.setQueryData(["session"], (old: any) => ({
+      user: null,
+      model: old?.model,
+    }));
   if (!r.ok) throw new Error(data.error || "请求失败");
   return data;
 }

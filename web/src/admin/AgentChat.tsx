@@ -79,10 +79,12 @@ export default function AgentChat({
   pid,
   eid,
   workspace,
+  model,
 }: {
   pid: string;
   eid: string;
   workspace: any;
+  model: string;
 }) {
   const [params, setParams] = useSearchParams(),
     sid = params.get("chat") || "";
@@ -884,7 +886,7 @@ export default function AgentChat({
                 }
               />
               <div className="chat-composer-note">
-                <span>GPT 6 Luna · Responses API</span>
+                <span>{model ? `${model} · ` : ""}Responses API</span>
                 <span>Enter 发送 · Shift+Enter 换行 · 每个附件 ≤ 5 MB</span>
               </div>
             </div>

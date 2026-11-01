@@ -1,10 +1,11 @@
 import { Agent } from "../src/runtime/index.js";
-import { createResponsesStream, MODEL } from "../src/openai/responses.js";
+import { createResponsesStream } from "../src/openai/responses.js";
 import { config } from "../src/server/config.js";
 const agent = new Agent({
   streamFn: createResponsesStream({
     apiKey: config.apiKey,
     baseURL: config.baseUrl,
+    model: config.model,
   }),
   maxTurns: 5,
   systemPrompt:
@@ -35,7 +36,7 @@ if (
   );
 console.log(
   JSON.stringify({
-    model: MODEL,
+    model: config.model,
     status: "passed",
     messages: agent.state.messages.length,
     toolCalls: agent.state.messages.filter((m) => m.role === "toolResult")

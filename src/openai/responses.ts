@@ -117,8 +117,14 @@ export function assistantFromResponse(
 export function createResponsesStream(options: {
   apiKey: string;
   baseURL: string;
+  model?: string;
 }): StreamFn {
-  const client = new OpenAI({ ...options, timeout: 120000, maxRetries: 1 });
+  const { model = MODEL, ...clientOptions } = options;
+  const client = new OpenAI({
+    ...clientOptions,
+    timeout: 120000,
+    maxRetries: 1,
+  });
   return async function* ({ messages, tools, signal }) {
     const partial: AssistantMessage = {
       role: "assistant",
@@ -129,7 +135,7 @@ export function createResponsesStream(options: {
     yield { type: "start", partial };
     const stream = await client.responses.create(
       {
-        model: MODEL,
+        model,
         input: responseInput(messages),
         stream: true,
         store: false,

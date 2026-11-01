@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { parse } from "dotenv";
 import { resolve } from "node:path";
+import { MODEL } from "../openai/responses.js";
 
 const localPath = resolve(".env.local");
 const local = existsSync(localPath) ? parse(readFileSync(localPath)) : {};
@@ -12,11 +13,21 @@ const inherited =
 export const config = {
   databaseUrl: env.DATABASE_URL ?? "",
   appSecret: env.APP_SECRET ?? "",
-  apiKey: env.OPENAI_API_KEY || inherited.OPENAI_API_KEY || "",
+  apiKey:
+    process.env.OPENAI_API_KEY ||
+    local.OPENAI_API_KEY ||
+    inherited.OPENAI_API_KEY ||
+    "",
   baseUrl:
-    env.OPENAI_BASE_URL ||
+    process.env.OPENAI_BASE_URL ||
+    local.OPENAI_BASE_URL ||
     inherited.OPENAI_BASE_URL ||
     "https://api.openai.com/v1",
+  model:
+    process.env.OPENAI_MODEL ||
+    local.OPENAI_MODEL ||
+    inherited.OPENAI_MODEL ||
+    MODEL,
   port: Number(env.PORT || 4310),
   host: env.HOST || "127.0.0.1",
   secureCookie: env.COOKIE_SECURE === "true",
