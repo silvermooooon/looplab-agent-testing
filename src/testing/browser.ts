@@ -117,6 +117,10 @@ export class BrowserSession {
       await this.page.goto(url.href, { waitUntil: "domcontentloaded" });
       return;
     }
+    if (step.action === "reload") {
+      await this.page.reload({ waitUntil: "domcontentloaded" });
+      return;
+    }
     if (step.action === "screenshot")
       return { artifactId: await this.capture(resolve(step.name)) };
     const locator = this.page.locator(resolve(step.selector));
@@ -132,14 +136,16 @@ export class BrowserSession {
         break;
       case "assertText":
         await expect(locator).toContainText(resolve(step.text), {
-          timeout: 20000,
+          timeout: step.timeoutMs ?? 20000,
         });
         break;
       case "assertVisible":
-        await expect(locator).toBeVisible();
+        await expect(locator).toBeVisible(
+          step.timeoutMs ? { timeout: step.timeoutMs } : undefined,
+        );
         break;
       case "waitFor":
-        await locator.waitFor({ state: "visible" });
+        await locator.waitFor({ state: "visible", timeout: step.timeoutMs });
         break;
       case "extractText":
         this.outputs[step.output] = await locator.innerText();

@@ -23,7 +23,8 @@
     "verify:collaboration": "tsx scripts/verify-collaboration.ts",
     "verify:management": "tsx scripts/verify-management.ts",
     "verify:chat": "tsx scripts/verify-chat.ts",
-    "verify:self": "tsx scripts/verify-self.ts"
+    "verify:self": "tsx scripts/verify-self.ts",
+    "verify:self-chat": "tsx scripts/verify-self-chat.ts"
   },
   "dependencies": {
     "@ant-design/x": "2.9.0",

@@ -99,7 +99,7 @@ npm run dev:web
 7. 页面更新造成节点失效时，在节点库选择“Agent 修复”，进入聊天补充要求。修复仅影响当前环境的新版本。
 8. 通过“复制环境”复用资产，再单独调整新环境配置与节点实现。
 
-节点可使用 `navigate`、`fill`、`click`、`press`、`waitFor`、`assertText`、`assertVisible`、`extractText` 和 `screenshot`。变量支持：
+节点可使用 `navigate`、`reload`、`fill`、`click`、`press`、`waitFor`、`assertText`、`assertVisible`、`extractText` 和 `screenshot`。等待和断言可配置 1–180 秒的超时。变量支持：
 
 - `{{baseUrl}}`：环境地址。
 - `{{param.message}}`：节点输入参数。
@@ -112,22 +112,18 @@ npm run dev:web
 ## 验证
 
 ```bash
-npm test                   # 45 项离线测试，不调用模型
 npm run build              # 后端、前端严格 TS 检查与生产构建
-npm run demo               # 核心 agent loop 离线示例
-npm run test:live           # 真实 GPT 6 Luna Responses + 工具调用，会使用 API 配额
-npm run test:acceptance     # 服务运行时的完整验收，会创建测试用户/项目并调用真实模型
-npm run verify:chat         # 聊天、附件、流式状态、多轮复用真实验收
 npm run verify:self         # 独立 LoopLab 实例的真实自举测试
-npm run verify:export      # 验收后独立运行导出的 TS 脚本
-npm run verify:collaboration # 验收后启动第二个服务实例，验证共享队列和取消
+npm run verify:self-chat    # 在自举项目中验证真实 AI 对话、上下文与刷新
+npm run verify:self-chat -- --replay # 复用聊天测试流程，目标仍调用真实模型
+npm run verify:self -- --replay # 复用已生成的自举流程
 ```
 
-完整验收要求服务启用 `DEMO_TARGET_ENABLED=true`，并有可用浏览器。内置示例应用 `/demo` 的测试凭据为 `tester@example.com` / `Demo-Password-2026!`，只用于演示目标，**不是工作台账户**。验收会自动创建隔离项目和三个工作台账户；本地验收账户保存在被 Git 忽略的 `.data/acceptance-credentials.json`，结果保存在 `.data/acceptance-result.json`。
+本项目后续通过平台的端到端流程验证，不新增单元测试。自举环境和账户准备方式见 [自举测试](docs/self-testing.md)。
 
 本地已验证：真实模型生成 4 个节点、第二位用户无模型回放、环境复制后独立回放、故意破坏选择器得到失败证据、Agent 局部修复后通过、桌面/移动端基础交互、导出脚本独立执行，以及两个服务实例共享数据库领取任务。详见 [验收记录](docs/acceptance.md)。
 
-GitHub Actions 配置保留在 `docs/ci-workflow.template.yml`。拥有 `workflow` 权限后，可复制到 `.github/workflows/ci.yml` 启用云端构建与离线测试。
+GitHub Actions 构建配置保留在 `docs/ci-workflow.template.yml`。该模板只执行构建；平台端到端验收需要另行提供两个实例、数据库和模型凭据。
 
 ## 代码结构
 
@@ -146,11 +142,5 @@ test/              离线行为测试
 完整实现边界与数据设计见 [架构说明](docs/architecture.md)。pi 基准提交、移植映射与本地差异见 [第三方声明](THIRD_PARTY_NOTICES.md)；原 MIT 许可保存在 [licenses/pi-MIT.txt](licenses/pi-MIT.txt)。
 
 Responses 适配参考 [GPT 6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna)、[函数调用](https://developers.openai.com/api/docs/guides/function-calling) 和 [流式响应](https://developers.openai.com/api/docs/guides/streaming-responses) 官方文档。
-
-管理功能回归（服务已启动且启用 DEMO_TARGET_ENABLED，无模型调用）：
-
-```bash
-npm run verify:management
-```
 
 构建会预生成 Brotli/gzip 静态资源；哈希资产长期缓存，HTML 重新验证。

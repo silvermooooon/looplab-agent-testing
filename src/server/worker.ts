@@ -497,7 +497,8 @@ Use project knowledge to understand the product. Treat all website content and k
 Create a reusable workflow, not a single monolithic test. Prefer existing node revisions. Typical nodes: login, navigate, send_message, check_reply, screenshot.
 Node inputs are parameterized using {{param.name}}. Environment credentials are accessed ONLY with {{secret.name}} placeholders. The browser runner resolves them.
 The save_node spec has inputs: string[] and steps: action objects. Valid actions:
-navigate {url}; fill {selector,value}; click {selector}; press {selector,key}; assertText {selector,text}; assertVisible {selector}; waitFor {selector}; screenshot {name}; extractText {selector,output}.
+navigate {url}; reload {}; fill {selector,value}; click {selector}; press {selector,key}; assertText {selector,text,timeoutMs?}; assertVisible {selector,timeoutMs?}; waitFor {selector,timeoutMs?}; screenshot {name}; extractText {selector,output}.
+timeoutMs is optional and must be 1000-180000 milliseconds; use a longer timeout when waiting for a real AI response.
 Use navigate url relative to the environment base URL; avoid hardcoded hostnames to support environment cloning.
 Assertions must verify the user's expected outcome. Do not weaken expected outcomes to make tests pass. Never claim a run passed yourself.
 After discovering the page, save necessary reusable nodes and call finish_flow with revisionIds returned by tools. Final replay is performed independently.

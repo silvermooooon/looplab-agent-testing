@@ -1,8 +1,10 @@
 import { z } from "zod";
 const str = z.string().min(1).max(4000);
 const selector = z.string().min(1).max(1000);
+const timeoutMs = z.number().int().min(1000).max(180000).optional();
 export const stepSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("navigate"), url: str }).strict(),
+  z.object({ action: z.literal("reload") }).strict(),
   z
     .object({
       action: z.literal("fill"),
@@ -12,9 +14,13 @@ export const stepSchema = z.discriminatedUnion("action", [
     .strict(),
   z.object({ action: z.literal("click"), selector }).strict(),
   z.object({ action: z.literal("press"), selector, key: str }).strict(),
-  z.object({ action: z.literal("assertText"), selector, text: str }).strict(),
-  z.object({ action: z.literal("assertVisible"), selector }).strict(),
-  z.object({ action: z.literal("waitFor"), selector }).strict(),
+  z
+    .object({ action: z.literal("assertText"), selector, text: str, timeoutMs })
+    .strict(),
+  z
+    .object({ action: z.literal("assertVisible"), selector, timeoutMs })
+    .strict(),
+  z.object({ action: z.literal("waitFor"), selector, timeoutMs }).strict(),
   z.object({ action: z.literal("screenshot"), name: str }).strict(),
   z
     .object({
@@ -73,6 +79,7 @@ export const stepJson = {
       type: "string",
       enum: [
         "navigate",
+        "reload",
         "fill",
         "click",
         "press",
@@ -90,6 +97,7 @@ export const stepJson = {
     text: { type: "string" },
     name: { type: "string" },
     output: { type: "string" },
+    timeoutMs: { type: "integer", minimum: 1000, maximum: 180000 },
   },
   required: ["action"],
   additionalProperties: false,
