@@ -53,9 +53,9 @@ cp .env.example .env.local
 | `APP_SECRET`          | 至少 32 个随机字符；加密环境凭据；共享数据库的实例必须一致    |
 | `OPENAI_ENV_FILE`     | 可选：从已有 env 文件读取未单独配置的 AI 参数                 |
 | `HOST`                | 服务监听地址，默认 `127.0.0.1`                                |
-| `PORT`                | 服务监听端口，默认 `4310`                                     |
+| `PORT`                | 服务监听端口，默认 `4310`；整数范围 `1–65535`                 |
 | `PLAYWRIGHT_CHANNEL`  | 使用本机 Chrome 时设为 `chrome`；留空使用 Playwright Chromium |
-| `RUN_TIMEOUT_MS`      | 单次运行的总超时，默认 `600000` 毫秒                          |
+| `RUN_TIMEOUT_MS`      | 单次运行总超时，默认 `600000` 毫秒；整数范围 `1–2147483647` |
 | `DEMO_TARGET_ENABLED` | 是否启用验收用的 `/demo` 对话平台，默认 false                 |
 | `COOKIE_SECURE`       | HTTPS 部署设为 true                                           |
 

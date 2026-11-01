@@ -10,6 +10,7 @@ import {
   Spin,
   Table,
   Tag,
+  Typography,
 } from "antd";
 import { ArrowLeft } from "lucide-react";
 import { api, date, Failure, Heading, Status } from "./client";
@@ -177,8 +178,21 @@ export default function SuiteRunDetail({
             },
             {
               title: "结果",
-              render: (_: any, row: any) => row.summary || row.error || "—",
-              ellipsis: true,
+              render: (_: any, row: any) =>
+                row.status === "failed" && row.error ? (
+                  <Typography.Paragraph
+                    style={{
+                      margin: 0,
+                      whiteSpace: "pre-wrap",
+                      overflowWrap: "anywhere",
+                    }}
+                    ellipsis={{ rows: 2, expandable: true, symbol: "展开" }}
+                  >
+                    {row.error}
+                  </Typography.Paragraph>
+                ) : (
+                  row.summary || row.error || "—"
+                ),
             },
             {
               title: "操作",

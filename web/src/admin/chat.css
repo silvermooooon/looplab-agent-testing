@@ -179,6 +179,10 @@
   padding: 14px;
   border-radius: 8px;
 }
+.chat-current-failed {
+  border-color: #ffcfcf;
+  background: #fff4f3;
+}
 .chat-current p {
   margin: 6px 0 0;
   font-size: 12px;

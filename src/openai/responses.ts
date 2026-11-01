@@ -133,27 +133,28 @@ export function createResponsesStream(options: {
       stopReason: "stop",
     };
     yield { type: "start", partial };
-    const stream = await client.responses.create(
-      {
-        model,
-        input: responseInput(messages),
-        stream: true,
-        store: false,
-        include: ["reasoning.encrypted_content"],
-        reasoning: { effort: "low" },
-        max_output_tokens: 10000,
-        parallel_tool_calls: false,
-        tools: tools.map((t) => ({
-          type: "function",
-          name: t.name,
-          description: t.description,
-          parameters: t.parameters,
-          strict: false,
-        })),
-      },
-      { signal },
-    );
+    let stream;
     try {
+      stream = await client.responses.create(
+        {
+          model,
+          input: responseInput(messages),
+          stream: true,
+          store: false,
+          include: ["reasoning.encrypted_content"],
+          reasoning: { effort: "low" },
+          max_output_tokens: 10000,
+          parallel_tool_calls: false,
+          tools: tools.map((t) => ({
+            type: "function",
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters,
+            strict: false,
+          })),
+        },
+        { signal },
+      );
       for await (const event of stream) {
         if (event.type === "response.output_text.delta") {
           const existing = partial.content[0];
@@ -178,9 +179,16 @@ export function createResponsesStream(options: {
         }
         if (event.type === "error") throw new Error(event.message);
       }
+      throw new Error("Responses stream ended without a terminal event");
+    } catch (error) {
+      if (error instanceof OpenAI.APIConnectionError)
+        error.message =
+          error instanceof OpenAI.APIConnectionTimeoutError
+            ? "AI 接口请求超时，请检查 OPENAI_BASE_URL 和网络连接"
+            : "AI 接口连接失败，请检查 OPENAI_BASE_URL 和网络连接";
+      throw error;
     } finally {
-      stream.controller.abort();
+      stream?.controller.abort();
     }
-    throw new Error("Responses stream ended without a terminal event");
   };
 }

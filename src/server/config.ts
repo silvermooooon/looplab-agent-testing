@@ -28,12 +28,17 @@ export const config = {
     local.OPENAI_MODEL ||
     inherited.OPENAI_MODEL ||
     MODEL,
-  port: Number(env.PORT || 4310),
+  port: positiveInteger("PORT", env.PORT, 4310, 65535),
   host: env.HOST || "127.0.0.1",
   secureCookie: env.COOKIE_SECURE === "true",
   demoEnabled: env.DEMO_TARGET_ENABLED === "true",
   browserChannel: env.PLAYWRIGHT_CHANNEL || undefined,
-  runTimeoutMs: Number(env.RUN_TIMEOUT_MS || 600000),
+  runTimeoutMs: positiveInteger(
+    "RUN_TIMEOUT_MS",
+    env.RUN_TIMEOUT_MS,
+    600000,
+    2147483647,
+  ),
 };
 export function validateConfig() {
   if (!config.databaseUrl) throw new Error("DATABASE_URL is required");
@@ -41,7 +46,24 @@ export function validateConfig() {
     throw new Error("APP_SECRET must contain at least 32 characters");
   if (!config.apiKey)
     throw new Error("OPENAI_API_KEY or OPENAI_ENV_FILE is required");
-  const url = new URL(config.baseUrl);
+  let url: URL;
+  try {
+    url = new URL(config.baseUrl);
+  } catch {
+    throw new Error("Invalid OPENAI_BASE_URL");
+  }
   if (!["http:", "https:"].includes(url.protocol))
     throw new Error("Invalid OPENAI_BASE_URL");
+}
+
+function positiveInteger(
+  name: string,
+  value: string | undefined,
+  defaultValue: number,
+  max: number,
+) {
+  const result = Number(value || defaultValue);
+  if (!Number.isInteger(result) || result < 1 || result > max)
+    throw new Error(`${name} must be an integer between 1 and ${max}`);
+  return result;
 }

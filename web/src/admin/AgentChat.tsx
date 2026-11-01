@@ -502,7 +502,7 @@ export default function AgentChat({
         {connection || "发送消息后，实时展示调查与执行过程。"}
       </p>
       {run && (
-        <div className="chat-current">
+        <div className={run.status === "failed" ? "chat-current chat-current-failed" : "chat-current"}>
           <strong>
             {running
               ? phaseNames[phase?.stage] ||
@@ -515,7 +515,13 @@ export default function AgentChat({
                     ? "本轮已停止"
                     : "本轮执行失败"}
           </strong>
-          <p>{running ? phase?.message : run.summary || run.error}</p>
+          <p>
+            {running
+              ? phase?.message
+              : run.status === "failed"
+                ? run.error || run.summary
+                : run.summary || run.error}
+          </p>
           {run.cancel_requested && running && (
             <Tag color="warning">正在停止…</Tag>
           )}

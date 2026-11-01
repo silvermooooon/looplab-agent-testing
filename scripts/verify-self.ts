@@ -22,16 +22,36 @@ const targetUser = {
 
 class Client {
   private cookie = "";
-  constructor(private readonly base: string) {}
+  private readonly origin: string;
+  constructor(private readonly base: string) {
+    try {
+      const url = new URL(base);
+      if (!["http:", "https:"].includes(url.protocol)) throw new Error();
+      this.origin = url.origin;
+    } catch {
+      throw new Error(
+        "无效的测试服务地址，请检查 SELF_TEST_TARGET_URL（必须使用 HTTP 或 HTTPS）",
+      );
+    }
+  }
   async request(path: string, method = "GET", body?: unknown) {
-    const response = await fetch(`${this.base}/api${path}`, {
-      method,
-      headers: {
-        ...(body ? { "Content-Type": "application/json" } : {}),
-        ...(this.cookie ? { Cookie: this.cookie } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.base}/api${path}`, {
+        method,
+        headers: {
+          ...(body ? { "Content-Type": "application/json" } : {}),
+          ...(this.cookie ? { Cookie: this.cookie } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } catch (error) {
+      const cause = error instanceof Error ? error.cause : undefined;
+      const detail = cause instanceof Error ? cause.message : "连接失败";
+      throw new Error(
+        `无法访问测试服务 ${this.origin}（${method} /api${path}）：${detail}`,
+      );
+    }
     const cookie = response.headers.get("set-cookie");
     if (cookie) this.cookie = cookie.split(";")[0]!;
     const data: any = await response.json();
