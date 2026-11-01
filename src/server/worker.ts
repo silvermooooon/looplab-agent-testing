@@ -13,6 +13,7 @@ import { chatHistory, chatWriter } from "./chat-runtime.js";
 import { config } from "./config.js";
 import { query, one } from "./db.js";
 import { decryptSecrets, redact } from "./security.js";
+import { runIntervention } from "./intervention.js";
 import {
   environment,
   latestNodes,
@@ -28,6 +29,7 @@ let current:
   | { id: string; controller: AbortController; promise: Promise<void> }
   | undefined;
 let timer: ReturnType<typeof setTimeout> | undefined;
+let commandsCleanedAt = 0;
 export async function event(runId: string, kind: string, data: unknown) {
   await query("INSERT INTO run_events(run_id,kind,data) VALUES($1,$2,$3)", [
     runId,
@@ -49,8 +51,26 @@ export function startWorker() {
   stopped = false;
   const tick = async () => {
     try {
-      await query(`UPDATE runs SET status=CASE WHEN cancel_requested THEN 'cancelled' ELSE 'failed' END, error='执行进程中断，请检查副作用后重新运行',finished_at=now(),events_complete=true
-        WHERE status='running' AND heartbeat_at < now()-interval '60 seconds'`);
+      const lost =
+        await query(`UPDATE runs SET status=CASE WHEN cancel_requested THEN 'cancelled' ELSE 'failed' END, error='执行进程中断，请检查副作用后重新运行',finished_at=now(),events_complete=true
+        WHERE status='running' AND heartbeat_at < now()-interval '60 seconds' RETURNING id`);
+      if (lost.length) {
+        const ids = lost.map((r) => r.id);
+        await query(
+          "DELETE FROM run_interventions WHERE run_id=ANY($1::uuid[])",
+          [ids],
+        );
+        await query(
+          "UPDATE intervention_commands SET status='failed',action='{}',error='运行已结束' WHERE status IN ('pending','processing') AND run_id=ANY($1::uuid[])",
+          [ids],
+        );
+      }
+      if (Date.now() - commandsCleanedAt > 60000) {
+        await query(
+          "DELETE FROM intervention_commands WHERE status IN ('done','failed') AND created_at < now()-interval '15 minutes'",
+        );
+        commandsCleanedAt = Date.now();
+      }
       await query(
         "UPDATE runs SET events_complete=true WHERE NOT events_complete AND status NOT IN ('queued','running') AND finished_at < now()-interval '60 seconds'",
       );
@@ -103,10 +123,22 @@ async function perform(run: any, controller: AbortController) {
     event(run.id, kind, redact(data, { ...secrets, _apiKey: config.apiKey }));
   let writer: ReturnType<typeof chatWriter> | undefined;
   let timedOut = false;
-  const timeout = setTimeout(() => {
+  let remainingTime = config.runTimeoutMs;
+  let deadline = Date.now() + remainingTime;
+  const expire = () => {
     timedOut = true;
     controller.abort();
-  }, config.runTimeoutMs);
+  };
+  let timeout = setTimeout(expire, remainingTime);
+  const pauseTimer = () => {
+    clearTimeout(timeout);
+    remainingTime = Math.max(0, deadline - Date.now());
+  };
+  const resumeTimer = () => {
+    if (controller.signal.aborted) return;
+    deadline = Date.now() + remainingTime;
+    timeout = setTimeout(expire, remainingTime);
+  };
   const heartbeat = setInterval(() => {
     void (async () => {
       const row = await one(
@@ -145,6 +177,17 @@ async function perform(run: any, controller: AbortController) {
         env.variables,
         artifact,
         controller.signal,
+        async (info) => {
+          pauseTimer();
+          try {
+            await runIntervention(run.id, b, info, controller.signal, log, {
+              ...secrets,
+              _apiKey: config.apiKey,
+            });
+          } finally {
+            resumeTimer();
+          }
+        },
       );
       browser = b;
       await b.open();
@@ -511,7 +554,9 @@ Create a reusable workflow, not a single monolithic test. Prefer existing node r
 Classify the completed flow as health (essential availability), full (broad coverage), feature (specific functionality), one_off (temporary investigation), or regression (previously established behavior).
 Node inputs are parameterized using {{param.name}}. Environment credentials are accessed ONLY with {{secret.name}} placeholders. The browser runner resolves them.
 The save_node spec has inputs: string[] and steps: action objects. Valid actions:
-navigate {url}; reload {}; fill {selector,value}; click {selector}; press {selector,key}; assertText {selector,text,timeoutMs?}; assertVisible {selector,timeoutMs?}; waitFor {selector,timeoutMs?}; screenshot {name}; extractText {selector,output}.
+navigate {url}; reload {}; fill {selector,value}; click {selector}; press {selector,key}; assertText {selector,text,timeoutMs?}; assertVisible {selector,timeoutMs?}; waitFor {selector,timeoutMs?}; waitForHidden {selector,timeoutMs?}; waitForResponse {url,timeoutMs?}; screenshot {name}; extractText {selector,output}; pauseForHuman {message}; watchElement {selector,message}; watchDialog {message}; watchResponse {url,message}; clearWatchers {}.
+waitForResponse waits for a matching network response after the step begins. For responses that may already occur during an earlier action, register watchResponse before that action instead.
+Use pauseForHuman to request manual control when appropriate. watchElement listens for an element becoming visible, watchDialog for a native browser dialog, and watchResponse for a response whose URL contains the supplied substring. They remain active across nodes until clearWatchers or the browser closes, and can trigger again after a previous issue is handled. A trigger pauses execution for a person to handle the same browser page and resume. Place a watcher before the action that may trigger it; do not use a watcher as an assertion.
 timeoutMs is optional and must be 1000-180000 milliseconds; use a longer timeout when waiting for a real AI response.
 Use navigate url relative to the environment base URL; avoid hardcoded hostnames to support environment cloning.
 Assertions must verify the user's expected outcome. Do not weaken expected outcomes to make tests pass. Never claim a run passed yourself.
@@ -646,6 +691,7 @@ ${repair ? `REPAIR MODE: Only update node key ${repair.key}. Preserve assertion 
         name: revision.name,
       });
     }
+    await browser!.finishWatchers();
     await browser!.capture("final.png");
     controller.signal.throwIfAborted();
     const completion = await one(

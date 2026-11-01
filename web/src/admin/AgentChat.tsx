@@ -33,6 +33,7 @@ import {
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, date, Failure, Heading, Status } from "./client";
+import { useIntervention } from "./Intervention";
 import "./chat.css";
 const active = (run: any) => run && ["queued", "running"].includes(run.status);
 const phaseNames: Record<string, string> = {
@@ -43,6 +44,7 @@ const phaseNames: Record<string, string> = {
   generating: "生成共享节点",
   composing: "编排流程",
   testing: "运行测试",
+  human: "等待人工处理",
 };
 const toolNames: Record<string, string> = {
   browser_inspect: "查看页面元素",
@@ -164,6 +166,7 @@ export default function AgentChat({
       !canEdit ||
       !!data?.session.archived_at ||
       !!(data && data.session.environment_id !== eid);
+  const intervention = useIntervention(run?.id, !!running);
   currentSid.current = sid;
   const refreshList = () =>
     cache.invalidateQueries({ queryKey: ["chat-list", pid, eid] });
@@ -704,6 +707,22 @@ export default function AgentChat({
               error={conversation.error}
               retry={() => void conversation.refetch()}
             />
+            {running && intervention.data?.active && run && (
+              <Alert
+                type="warning"
+                showIcon
+                title="等待人工处理"
+                description={
+                  intervention.data.info?.message ||
+                  "请接管浏览器，处理完成后继续运行。"
+                }
+                action={
+                  <Link to={`/projects/${pid}/runs?env=${eid}&run=${run.id}`}>
+                    前往人工接管
+                  </Link>
+                }
+              />
+            )}
             {data && data.session.environment_id !== eid && (
               <Alert
                 type="error"

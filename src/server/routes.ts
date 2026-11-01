@@ -24,6 +24,7 @@ import {
 import { specSchema, flowSchema } from "../testing/spec.js";
 import { exportScript } from "../testing/export.js";
 import { cancelRun } from "./worker.js";
+import { interventionRoutes } from "./intervention.js";
 
 const id = z.string().uuid();
 const name = z.string().trim().min(1).max(120);
@@ -617,6 +618,7 @@ export async function routes(app: FastifyInstance) {
     await cancelRun(run.id);
     return { ok: true };
   });
+  interventionRoutes(app);
   app.get("/api/artifacts/:aid", async (r, reply) => {
     const row = await one(
       "SELECT a.*,r.project_id FROM artifacts a JOIN runs r ON r.id=a.run_id WHERE a.id=$1",

@@ -21,6 +21,21 @@ export const stepSchema = z.discriminatedUnion("action", [
     .object({ action: z.literal("assertVisible"), selector, timeoutMs })
     .strict(),
   z.object({ action: z.literal("waitFor"), selector, timeoutMs }).strict(),
+  z
+    .object({ action: z.literal("waitForResponse"), url: str, timeoutMs })
+    .strict(),
+  z
+    .object({ action: z.literal("waitForHidden"), selector, timeoutMs })
+    .strict(),
+  z.object({ action: z.literal("pauseForHuman"), message: str }).strict(),
+  z
+    .object({ action: z.literal("watchElement"), selector, message: str })
+    .strict(),
+  z.object({ action: z.literal("watchDialog"), message: str }).strict(),
+  z
+    .object({ action: z.literal("watchResponse"), url: str, message: str })
+    .strict(),
+  z.object({ action: z.literal("clearWatchers") }).strict(),
   z.object({ action: z.literal("screenshot"), name: str }).strict(),
   z
     .object({
@@ -86,6 +101,13 @@ export const stepJson = {
         "assertText",
         "assertVisible",
         "waitFor",
+        "waitForResponse",
+        "waitForHidden",
+        "pauseForHuman",
+        "watchElement",
+        "watchDialog",
+        "watchResponse",
+        "clearWatchers",
         "screenshot",
         "extractText",
       ],
@@ -97,6 +119,7 @@ export const stepJson = {
     text: { type: "string" },
     name: { type: "string" },
     output: { type: "string" },
+    message: { type: "string" },
     timeoutMs: { type: "integer", minimum: 1000, maximum: 180000 },
   },
   required: ["action"],

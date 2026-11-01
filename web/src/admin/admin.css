@@ -203,6 +203,48 @@ a {
 .step-card {
   margin-bottom: 12px;
 }
+.intervention-panel {
+  padding: 20px;
+  margin-bottom: 20px;
+  border: 1px solid #edcf82;
+  border-radius: 12px;
+  background: #fffdf5;
+}
+.intervention-viewport {
+  overflow: hidden;
+  width: 100%;
+  border: 1px solid #d9e0e5;
+  border-radius: 8px;
+  background: #e9eef2;
+}
+.intervention-viewport img {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: crosshair;
+}
+.intervention-placeholder {
+  min-height: 160px;
+  display: grid;
+  place-items: center;
+  color: #758391;
+}
+.intervention-controls {
+  margin-top: 14px;
+}
+.intervention-dialog {
+  padding: 14px;
+  margin-bottom: 14px;
+  border: 1px solid #efc56e;
+  border-radius: 8px;
+  background: white;
+}
+.intervention-dialog .ant-input {
+  margin-bottom: 10px;
+}
+.intervention-resume {
+  margin-top: 16px;
+}
 .ant-table-cell .ant-btn-link {
   padding-left: 0;
 }

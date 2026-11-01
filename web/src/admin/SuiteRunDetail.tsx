@@ -13,6 +13,7 @@ import {
 } from "antd";
 import { ArrowLeft } from "lucide-react";
 import { api, date, Failure, Heading, Status } from "./client";
+import { useIntervention } from "./Intervention";
 
 export default function SuiteRunDetail({
   id,
@@ -40,6 +41,10 @@ export default function SuiteRunDetail({
     refetchIntervalInBackground: false,
     staleTime: 1500,
   });
+  const runningItem = result.data?.items.find(
+    (item: any) => item.status === "running",
+  );
+  const intervention = useIntervention(runningItem?.id, !!runningItem);
   if (result.error)
     return <Failure error={result.error} retry={() => void result.refetch()} />;
   if (!result.data) return <Spin />;
@@ -90,6 +95,22 @@ export default function SuiteRunDetail({
         }
       />
       {run.error && <Alert type="error" showIcon title={run.error} />}
+      {intervention.data?.active && runningItem && (
+        <Alert
+          type="warning"
+          showIcon
+          title="测试组等待人工处理"
+          description={
+            intervention.data.info?.message ||
+            `流程「${runningItem.flow_name}」需要人工处理。`
+          }
+          action={
+            <Button onClick={() => onOpenRun(runningItem.id)}>
+              前往人工接管
+            </Button>
+          }
+        />
+      )}
       <div className="table-card">
         <Descriptions
           size="small"
@@ -146,7 +167,9 @@ export default function SuiteRunDetail({
               title: "状态",
               dataIndex: "status",
               render: (value: string, row: any) =>
-                value === "cancelled" && !row.started_at ? (
+                intervention.data?.active && runningItem?.id === row.id ? (
+                  <Tag color="warning">等待人工处理</Tag>
+                ) : value === "cancelled" && !row.started_at ? (
                   <Tag>未执行</Tag>
                 ) : (
                   <Status value={value} />

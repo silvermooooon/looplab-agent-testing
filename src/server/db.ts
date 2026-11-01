@@ -119,5 +119,15 @@ export async function migrate() {
       CREATE UNIQUE INDEX runs_suite_position_idx ON runs(suite_run_id,suite_position) WHERE suite_run_id IS NOT NULL;
       INSERT INTO qa.schema_migrations(version) VALUES(4);
     `);
+    const v5 = await c.query(
+      "SELECT 1 FROM qa.schema_migrations WHERE version=5",
+    );
+    if (!v5.rowCount)
+      await c.query(`
+      CREATE TABLE run_interventions(run_id uuid PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,info jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
+      CREATE TABLE intervention_commands(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),seq bigint GENERATED ALWAYS AS IDENTITY,run_id uuid NOT NULL REFERENCES runs(id) ON DELETE CASCADE,action jsonb NOT NULL,status text NOT NULL DEFAULT 'pending',error text,data bytea,created_at timestamptz NOT NULL DEFAULT now());
+      CREATE INDEX intervention_commands_pending_idx ON intervention_commands(run_id,seq) WHERE status='pending';
+      INSERT INTO qa.schema_migrations(version) VALUES(5);
+    `);
   });
 }

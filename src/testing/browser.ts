@@ -2,7 +2,9 @@ import {
   chromium,
   type Browser,
   type BrowserContext,
+  type Dialog,
   type Page,
+  type Response,
 } from "playwright";
 import { expect } from "playwright/test";
 import { config } from "../server/config.js";
@@ -12,9 +14,29 @@ import {
   type Variables,
   type NodeSpec,
 } from "./spec.js";
+export interface InterventionInfo {
+  message: string;
+  trigger: "manual" | "element" | "dialog" | "response";
+  dialog?: { type: string; message: string; defaultValue: string };
+}
+export interface ManualAction {
+  type: string;
+  x?: number;
+  y?: number;
+  text?: string;
+  key?: string;
+  deltaY?: number;
+}
+type Watcher = { stop: () => void; check?: () => Promise<void> };
+
 export class BrowserSession {
   private browser?: Browser;
   private context?: BrowserContext;
+  private watchers = new Set<Watcher>();
+  private handoffs: Promise<void> = Promise.resolve();
+  private dialog?: Dialog;
+  private dialogClosed?: Promise<void>;
+  private resolveDialog?: () => void;
   page!: Page;
   readonly outputs: Record<string, string> = {};
   constructor(
@@ -27,6 +49,7 @@ export class BrowserSession {
       mime?: string,
     ) => Promise<string>,
     readonly signal: AbortSignal,
+    readonly onIntervention?: (info: InterventionInfo) => Promise<void>,
   ) {}
   async open() {
     this.signal.throwIfAborted();
@@ -63,6 +86,7 @@ export class BrowserSession {
   };
   async close() {
     this.signal.removeEventListener("abort", this.abort);
+    this.clearWatchers();
     await this.browser?.close().catch(() => {});
   }
   async inspect() {
@@ -98,8 +122,248 @@ export class BrowserSession {
     });
     return this.artifact(name, data);
   }
+  manualDialog() {
+    if (!this.dialog) return undefined;
+    return {
+      type: this.dialog.type(),
+      message: this.dialog.message(),
+      defaultValue: this.dialog.defaultValue(),
+    };
+  }
+  async manualScreenshot() {
+    if (this.dialog)
+      throw new Error("原生浏览器弹框等待处理，请先确认或取消弹框");
+    return this.page.screenshot({
+      fullPage: false,
+      mask: [this.page.locator("input[type=password]")],
+      timeout: 3000,
+    });
+  }
+  async manualAction(action: ManualAction) {
+    this.signal.throwIfAborted();
+    switch (action.type) {
+      case "click":
+        if (action.x === undefined || action.y === undefined)
+          throw new Error("Click requires x and y");
+        await this.page.mouse.click(action.x, action.y);
+        return;
+      case "type":
+        if (action.text === undefined) throw new Error("Type requires text");
+        await this.page.keyboard.insertText(action.text);
+        return;
+      case "press":
+        if (!action.key) throw new Error("Press requires key");
+        await this.page.keyboard.press(action.key);
+        return;
+      case "scroll":
+        await this.page.mouse.wheel(0, action.deltaY ?? 0);
+        return;
+      case "dialogAccept":
+      case "dialogDismiss": {
+        const dialog = this.dialog;
+        if (!dialog) throw new Error("没有等待处理的原生浏览器弹框");
+        if (action.type === "dialogAccept") await dialog.accept(action.text);
+        else await dialog.dismiss();
+        if (this.dialog === dialog) {
+          this.dialog = undefined;
+          this.resolveDialog?.();
+          this.resolveDialog = undefined;
+          this.dialogClosed = undefined;
+        }
+        return;
+      }
+      default:
+        throw new Error(`Unsupported manual action: ${action.type}`);
+    }
+  }
+  private async abortable<T>(promise: Promise<T>): Promise<T> {
+    this.signal.throwIfAborted();
+    return new Promise<T>((resolve, reject) => {
+      const aborted = () => reject(this.signal.reason ?? new Error("Aborted"));
+      this.signal.addEventListener("abort", aborted, { once: true });
+      promise
+        .then(resolve, reject)
+        .finally(() => this.signal.removeEventListener("abort", aborted));
+    });
+  }
+  private requestIntervention(info: InterventionInfo, dialog?: Dialog) {
+    if (!this.onIntervention)
+      throw new Error(
+        "This browser session does not support human intervention",
+      );
+    const handoff = this.handoffs.then(async () => {
+      if (dialog && this.dialog !== dialog) return;
+      await this.abortable(this.onIntervention!(info));
+      if (dialog && this.dialog === dialog && this.dialogClosed)
+        await this.abortable(this.dialogClosed);
+    });
+    this.handoffs = handoff;
+    void handoff.catch(() => {});
+    return handoff;
+  }
+  private async waitForInterventions() {
+    let waiting: Promise<void>;
+    do {
+      waiting = this.handoffs;
+      await this.abortable(waiting);
+    } while (waiting !== this.handoffs);
+  }
+  private clearWatchers() {
+    for (const watcher of this.watchers) watcher.stop();
+  }
+  private async checkWatchers() {
+    await Promise.all([...this.watchers].map((watcher) => watcher.check?.()));
+  }
+  async finishWatchers() {
+    await this.waitForInterventions();
+    await this.checkWatchers();
+    await this.waitForInterventions();
+    this.clearWatchers();
+  }
+  private async watchElement(selector: string, message: string) {
+    if (!this.onIntervention)
+      throw new Error(
+        "This browser session does not support human intervention",
+      );
+    const locator = this.page
+      .locator(selector)
+      .filter({ visible: true })
+      .first();
+    let active = true;
+    let visible = false;
+    let pending = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let checking: Promise<void> | undefined;
+    const watcher: Watcher = {
+      stop: () => {
+        active = false;
+        if (timer) clearTimeout(timer);
+        this.watchers.delete(watcher);
+      },
+      check: () => {
+        if (!active) return Promise.resolve();
+        if (checking) return checking;
+        checking = (async () => {
+          const isVisible = await locator.isVisible();
+          if (active && isVisible && !visible && !pending) {
+            pending = true;
+            void this.requestIntervention({ message, trigger: "element" }).then(
+              () => {
+                pending = false;
+              },
+              () => {
+                pending = false;
+              },
+            );
+          }
+          visible = isVisible;
+        })().finally(() => {
+          checking = undefined;
+        });
+        return checking;
+      },
+    };
+    this.watchers.add(watcher);
+    const poll = async () => {
+      try {
+        await watcher.check!();
+      } catch {
+        // Navigation can temporarily remove the execution context; retry on the new page.
+      }
+      if (active) timer = setTimeout(poll, 250);
+    };
+    await watcher.check!();
+    if (active) timer = setTimeout(poll, 250);
+  }
+  private watchDialog(message: string) {
+    if (!this.onIntervention)
+      throw new Error(
+        "This browser session does not support human intervention",
+      );
+    let active = true;
+    let pending = false;
+    const schedule = () => {
+      const dialog = this.dialog;
+      if (!active || !dialog || pending) return;
+      pending = true;
+      void this.requestIntervention(
+        { message, trigger: "dialog", dialog: this.manualDialog() },
+        dialog,
+      ).then(
+        () => {
+          pending = false;
+          schedule();
+        },
+        () => {
+          pending = false;
+        },
+      );
+    };
+    const handler = (dialog: Dialog) => {
+      if (this.dialog === dialog) return;
+      this.resolveDialog?.();
+      this.dialog = dialog;
+      this.dialogClosed = new Promise<void>((resolve) => {
+        this.resolveDialog = resolve;
+      });
+      schedule();
+    };
+    const watcher: Watcher = {
+      stop: () => {
+        active = false;
+        this.page.off("dialog", handler);
+        this.watchers.delete(watcher);
+      },
+    };
+    this.watchers.add(watcher);
+    this.page.on("dialog", handler);
+  }
+  private watchResponse(url: string, message: string) {
+    if (!this.onIntervention)
+      throw new Error(
+        "This browser session does not support human intervention",
+      );
+    let pending = false;
+    const handler = (response: Response) => {
+      if (!response.url().includes(url) || pending) return;
+      pending = true;
+      void this.requestIntervention({ message, trigger: "response" }).then(
+        () => {
+          pending = false;
+        },
+        () => {
+          pending = false;
+        },
+      );
+    };
+    const watcher: Watcher = {
+      stop: () => {
+        this.page.off("response", handler);
+        this.watchers.delete(watcher);
+      },
+    };
+    this.watchers.add(watcher);
+    this.page.on("response", handler);
+  }
   async step(step: Step, params: Record<string, string> = {}) {
     this.signal.throwIfAborted();
+    await this.waitForInterventions();
+    await this.checkWatchers();
+    await this.waitForInterventions();
+    let result: unknown;
+    let failure: unknown;
+    try {
+      result = await this.executeStep(step, params);
+    } catch (error) {
+      failure = error;
+    }
+    await this.waitForInterventions();
+    if (failure) throw failure;
+    await this.checkWatchers();
+    await this.waitForInterventions();
+    return result;
+  }
+  private async executeStep(step: Step, params: Record<string, string>) {
     const context: Variables = {
       baseUrl: this.baseUrl,
       param: params,
@@ -123,6 +387,39 @@ export class BrowserSession {
     }
     if (step.action === "screenshot")
       return { artifactId: await this.capture(resolve(step.name)) };
+    if (step.action === "pauseForHuman") {
+      this.requestIntervention({
+        message: resolve(step.message),
+        trigger: "manual",
+      });
+      return;
+    }
+    if (step.action === "watchElement") {
+      await this.watchElement(resolve(step.selector), resolve(step.message));
+      return;
+    }
+    if (step.action === "watchDialog") {
+      this.watchDialog(resolve(step.message));
+      return;
+    }
+    if (step.action === "watchResponse") {
+      this.watchResponse(resolve(step.url), resolve(step.message));
+      return;
+    }
+    if (step.action === "waitForResponse") {
+      const url = resolve(step.url);
+      await this.page.waitForResponse(
+        (response) => response.url().includes(url),
+        {
+          timeout: step.timeoutMs,
+        },
+      );
+      return;
+    }
+    if (step.action === "clearWatchers") {
+      this.clearWatchers();
+      return;
+    }
     const locator = this.page.locator(resolve(step.selector));
     switch (step.action) {
       case "fill":
@@ -146,6 +443,9 @@ export class BrowserSession {
         break;
       case "waitFor":
         await locator.waitFor({ state: "visible", timeout: step.timeoutMs });
+        break;
+      case "waitForHidden":
+        await locator.waitFor({ state: "hidden", timeout: step.timeoutMs });
         break;
       case "extractText":
         this.outputs[step.output] = await locator.innerText();

@@ -21,6 +21,7 @@
 - 指定节点的 Agent 修复，保留断言要求与其他节点引用，创建新版本后验证。
 - PostgreSQL 任务队列、取消、心跳、进程异常后的失败标记。
 - 执行时间线、失败截图、共享图片附件、JSON 报告和版本快照。
+- 在运行中监听元素、浏览器原生弹框或网络响应；触发后保留现场，由项目成员远程接管同一个浏览器并继续执行。
 - 默认 `gpt-6-luna`，使用 OpenAI Responses API，支持流式响应、函数调用和 reasoning item 回传。
 
 聊天功能与验收见 [Agent 对话入口](docs/agent-chat.md)。管理选型、性能测量和边界见 [管理 UI 审阅](docs/ui-review.md)。
@@ -112,7 +113,13 @@ npm run dev:web
 
 健康检查适合验证服务和关键入口是否可用，功能检查针对具体能力，回归检查用于功能变更后的整体验收，一次性检查用于临时调查。全量检查通常是覆盖多个类别的测试组：同一流程可以加入多个组，无需重复生成。组内流程各自使用新的浏览器，顺序只保证先后执行，不共享浏览器登录状态。
 
-节点可使用 `navigate`、`reload`、`fill`、`click`、`press`、`waitFor`、`assertText`、`assertVisible`、`extractText` 和 `screenshot`。等待和断言可配置 1–180 秒的超时。变量支持：
+节点可使用 `navigate`、`reload`、`fill`、`click`、`press`、`waitFor`、`assertText`、`assertVisible`、`extractText` 和 `screenshot`。等待和断言可配置 1–180 秒的超时。
+
+人工接管可通过 `pauseForHuman` 主动请求，或先用 `watchElement`、`watchDialog`、`watchResponse` 注册监听。监听在后续步骤间持续生效，直到执行 `clearWatchers` 或浏览器关闭；元素消失后再次出现时会再次提醒。元素按约 250 毫秒间隔检查，短暂闪现可能漏报。`waitForHidden` 可等待元素消失，`waitForResponse` 可等待该步骤开始后的网络响应。触发后，在运行报告中操作当前浏览器并点击继续，也可以取消运行。测试组会等待当前流程处理完毕。人工等待不计入运行总超时；触发前已经开始的浏览器动作仍可能完成或达到自己的超时，平台不会自动重试它。
+
+接管依赖执行器进程保留浏览器会话；进程中断后无法恢复该现场。独立导出的脚本目前不支持人工接管和后台监听节点，遇到这些节点会明确报错。
+
+变量支持：
 
 - `{{baseUrl}}`：环境地址。
 - `{{param.message}}`：节点输入参数。
@@ -130,6 +137,7 @@ npm run verify:self         # 独立 LoopLab 实例的真实自举测试
 npm run verify:self-chat    # 在自举项目中验证真实 AI 对话、上下文与刷新
 npx tsx scripts/verify-self-suites.ts        # 测试组管理、顺序与汇总
 npx tsx scripts/verify-self-suites-cancel.ts # 整组取消与未执行项目
+npx tsx scripts/verify-self-intervention.ts  # 监听、人工接管与继续
 npm run verify:self-chat -- --replay # 复用聊天测试流程，目标仍调用真实模型
 npm run verify:self -- --replay # 复用已生成的自举流程
 ```

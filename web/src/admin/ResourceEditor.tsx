@@ -437,6 +437,7 @@ export default function ResourceEditor({
             <Alert
               type="info"
               title="保存为新版本，既有流程仍引用原版本。支持 {{param.message}}、{{secret.password}} 等变量。"
+              description="可在 Agent 对话中生成元素、网络响应和浏览器弹框监听节点；触发后在运行报告中接管。"
             />
             <Form.Item
               name="spec"

@@ -13,6 +13,7 @@ import {
 } from "antd";
 import { ArrowLeft, Download } from "lucide-react";
 import { api, date, Failure, Heading, Status } from "./client";
+import InterventionPanel, { useIntervention } from "./Intervention";
 export default function RunDetail({
   id,
   pid,
@@ -50,6 +51,10 @@ export default function RunDetail({
     staleTime: 1500,
   });
   const status = run.data?.run.status;
+  const intervention = useIntervention(
+    id,
+    ["queued", "running"].includes(status),
+  );
   const eventNames: Record<string, string> = {
     run_started: "运行开始",
     node_start: "开始节点",
@@ -67,6 +72,8 @@ export default function RunDetail({
     conversation_completed: "对话完成",
     node_saved: "保存节点",
     flow_saved: "保存流程",
+    intervention: "人工接管状态",
+    intervention_action: "人工操作",
   };
   useEffect(() => {
     if (status && !["queued", "running"].includes(status)) {
@@ -130,6 +137,13 @@ export default function RunDetail({
           </>
         }
       />
+      {active && intervention.data?.active && intervention.data.info && (
+        <InterventionPanel
+          id={id}
+          canEdit={canEdit}
+          info={intervention.data.info}
+        />
+      )}
       {r.error && <Alert type="error" showIcon title={r.error} />}
       <div className="table-card">
         <Descriptions
