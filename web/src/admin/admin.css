@@ -137,6 +137,13 @@ a {
   flex: 1;
   min-width: 0;
 }
+.suite-flow-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
 .code-preview {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 12px;

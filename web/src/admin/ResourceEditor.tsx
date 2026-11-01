@@ -14,7 +14,7 @@ import {
   Upload,
 } from "antd";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
-import { api, Failure, useApi } from "./client";
+import { api, Failure, flowCategories, useApi } from "./client";
 const required = [{ required: true, message: "请填写此项" }];
 const names: Record<string, string> = {
   environments: "环境配置",
@@ -187,6 +187,7 @@ export default function ResourceEditor({
     removeSecrets: [],
     copySecrets: false,
     caseId: item?.case_id,
+    category: item?.category || "feature",
     role: item?.role || "editor",
     steps: item?.steps || [],
     spec: JSON.stringify(
@@ -257,6 +258,7 @@ export default function ResourceEditor({
         return api(`/projects/${pid}/flows`, "POST", {
           environmentId: eid,
           caseId: v.caseId,
+          category: v.category,
           name: v.name,
           steps: (v.steps || []).map((s: any) => ({
             revisionId: s.revisionId,
@@ -358,7 +360,7 @@ export default function ResourceEditor({
           <>
             <Alert
               type="info"
-              title="复制变量、全部节点版本与流程，并重新绑定到新环境。后续修改互不影响。"
+              title="复制变量、全部节点版本、流程与测试组，并重新绑定到新环境。后续修改互不影响。"
             />
             <Form.Item name="copySecrets" valuePropName="checked">
               <Checkbox>同时复制加密凭据</Checkbox>
@@ -455,6 +457,11 @@ export default function ResourceEditor({
               <Input.TextArea rows={14} style={{ fontFamily: "monospace" }} />
             </Form.Item>
           </>
+        )}
+        {kind === "flows" && (
+          <Form.Item name="category" label="流程分类" rules={required}>
+            <Select options={flowCategories} />
+          </Form.Item>
         )}
         {kind === "flows" && (
           <Form.Item name="caseId" label="测试用例" rules={required}>

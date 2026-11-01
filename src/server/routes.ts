@@ -369,19 +369,45 @@ export async function routes(app: FastifyInstance) {
           [source.id, pid],
         )
       ).rows;
+      const flowMapping = new Map<string, string>();
       for (const flow of flows) {
         const steps = flowSchema
           .parse(flow.steps)
           .map((s) => ({ ...s, revisionId: mapping.get(s.revisionId)! }));
+        const copiedFlow = await c.query(
+          "INSERT INTO flows(project_id,environment_id,case_id,name,steps,created_by,category) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+          [
+            pid,
+            env.id,
+            flow.case_id,
+            flow.name,
+            JSON.stringify(steps),
+            uid(r),
+            flow.category,
+          ],
+        );
+        flowMapping.set(flow.id, copiedFlow.rows[0].id);
+      }
+      const suites = (
         await c.query(
-          "INSERT INTO flows(project_id,environment_id,case_id,name,steps,created_by) VALUES($1,$2,$3,$4,$5,$6)",
-          [pid, env.id, flow.case_id, flow.name, JSON.stringify(steps), uid(r)],
+          "SELECT * FROM test_suites WHERE project_id=$1 AND environment_id=$2",
+          [pid, source.id],
+        )
+      ).rows;
+      for (const suite of suites) {
+        const flowIds = (suite.flow_ids as string[]).map((id) =>
+          flowMapping.get(id)!,
+        );
+        await c.query(
+          "INSERT INTO test_suites(project_id,environment_id,name,description,flow_ids,created_by) VALUES($1,$2,$3,$4,$5,$6)",
+          [pid, env.id, suite.name, suite.description, flowIds, uid(r)],
         );
       }
       return {
         id: env.id,
         copiedRevisions: revisions.length,
         copiedFlows: flows.length,
+        copiedSuites: suites.length,
       };
     });
   });
@@ -464,9 +490,25 @@ export async function routes(app: FastifyInstance) {
     const pid = path(r, "pid");
     await requireMember(pid, uid(r), true);
     const b = z
-      .object({ environmentId: id, caseId: id, name, steps: flowSchema })
+      .object({
+        environmentId: id,
+        caseId: id,
+        name,
+        steps: flowSchema,
+        category: z
+          .enum(["health", "full", "feature", "one_off", "regression"])
+          .default("feature"),
+      })
       .parse(r.body);
-    return saveFlow(pid, b.environmentId, b.caseId, uid(r), b.name, b.steps);
+    return saveFlow(
+      pid,
+      b.environmentId,
+      b.caseId,
+      uid(r),
+      b.name,
+      b.steps,
+      b.category,
+    );
   });
   app.get("/api/projects/:pid/flows/:fid/export", async (r, reply) => {
     const pid = path(r, "pid");

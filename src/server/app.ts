@@ -9,6 +9,7 @@ import { config } from "./config.js";
 import { chatRoutes } from "./chat.js";
 import { management } from "./management.js";
 import { routes } from "./routes.js";
+import { suiteRoutes } from "./suites.js";
 
 export async function buildApp() {
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
@@ -38,6 +39,7 @@ export async function buildApp() {
   await routes(app);
   await management(app);
   await chatRoutes(app);
+  await suiteRoutes(app);
   if (config.demoEnabled) {
     app.post("/demo/api/login", async (r, reply) => {
       const body = z

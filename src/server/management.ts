@@ -11,6 +11,9 @@ const paging = z.object({
   q: z.string().max(200).default(""),
   archived: z.enum(["true", "false"]).default("false"),
   environmentId: uuid.optional(),
+  category: z
+    .enum(["health", "full", "feature", "one_off", "regression", ""])
+    .optional(),
 });
 const uid = (r: FastifyRequest) => {
   if (!r.currentUser) throw new HttpError(401, "请先登录");
@@ -130,8 +133,8 @@ export async function management(app: FastifyInstance) {
         sql = `SELECT * FROM (SELECT DISTINCT ON(n.id) n.id,n.id node_id,n.key,n.name,n.description,v.id revision_id,v.version,v.spec,v.created_at FROM nodes n JOIN node_versions v ON v.node_id=n.id WHERE n.project_id=$1 AND (n.name ILIKE $2 OR n.key ILIKE $2) AND v.environment_id=$3 ORDER BY n.id,v.version DESC) latest ORDER BY created_at DESC,id`;
         break;
       case "flows":
-        args.push(p.environmentId ?? null);
-        sql = `SELECT f.*,c.title case_title FROM flows f JOIN test_cases c ON c.id=f.case_id WHERE f.project_id=$1 AND (f.name ILIKE $2 OR c.title ILIKE $2) AND f.environment_id=$3 ORDER BY f.created_at DESC,f.id`;
+        args.push(p.environmentId ?? null, p.category || null);
+        sql = `SELECT f.*,c.title case_title FROM flows f JOIN test_cases c ON c.id=f.case_id WHERE f.project_id=$1 AND (f.name ILIKE $2 OR c.title ILIKE $2) AND f.environment_id=$3 AND ($4::text IS NULL OR f.category=$4) ORDER BY f.created_at DESC,f.id`;
         break;
       case "runs":
         args.push(p.environmentId ?? null);

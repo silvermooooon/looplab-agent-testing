@@ -102,5 +102,22 @@ export async function migrate() {
       CREATE INDEX chat_attachments_session_idx ON chat_attachments(conversation_id,message_id);
       INSERT INTO qa.schema_migrations(version) VALUES(3);
     `);
+    const v4 = await c.query(
+      "SELECT 1 FROM qa.schema_migrations WHERE version=4",
+    );
+    if (!v4.rowCount)
+      await c.query(`
+      ALTER TABLE flows ADD COLUMN category text NOT NULL DEFAULT 'feature' CHECK(category IN ('health','full','feature','one_off','regression'));
+      CREATE TABLE test_suites(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),project_id uuid NOT NULL REFERENCES projects(id),environment_id uuid NOT NULL REFERENCES environments(id),name text NOT NULL,description text NOT NULL DEFAULT '',flow_ids uuid[] NOT NULL DEFAULT '{}',created_by uuid NOT NULL REFERENCES users(id),created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now());
+      CREATE INDEX test_suites_environment_idx ON test_suites(project_id,environment_id,updated_at DESC);
+      CREATE TABLE suite_runs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),suite_id uuid REFERENCES test_suites(id) ON DELETE SET NULL,project_id uuid NOT NULL REFERENCES projects(id),environment_id uuid NOT NULL REFERENCES environments(id),suite_name text NOT NULL,requested_by uuid NOT NULL REFERENCES users(id),cancel_requested boolean NOT NULL DEFAULT false,created_at timestamptz NOT NULL DEFAULT now());
+      CREATE INDEX suite_runs_environment_idx ON suite_runs(project_id,environment_id,created_at DESC);
+      ALTER TABLE runs ADD COLUMN suite_run_id uuid REFERENCES suite_runs(id);
+      ALTER TABLE runs ADD COLUMN suite_position integer;
+      ALTER TABLE runs ADD COLUMN suite_flow_name text;
+      ALTER TABLE runs ADD COLUMN suite_case_title text;
+      CREATE UNIQUE INDEX runs_suite_position_idx ON runs(suite_run_id,suite_position) WHERE suite_run_id IS NOT NULL;
+      INSERT INTO qa.schema_migrations(version) VALUES(4);
+    `);
   });
 }

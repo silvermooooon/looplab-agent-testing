@@ -50,6 +50,13 @@ export const statusNames: Record<string, string> = {
   editor: "编辑者",
   viewer: "只读成员",
 };
+export const flowCategories = [
+  { value: "health", label: "健康检查" },
+  { value: "full", label: "全量检查" },
+  { value: "feature", label: "功能检查" },
+  { value: "one_off", label: "一次性检查" },
+  { value: "regression", label: "回归检查" },
+];
 export function Status({ value }: { value: string }) {
   return (
     <Tag

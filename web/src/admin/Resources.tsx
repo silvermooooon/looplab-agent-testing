@@ -7,6 +7,7 @@ import {
   Button,
   Drawer,
   Input,
+  Select,
   Segmented,
   Space,
   Table,
@@ -14,12 +15,12 @@ import {
   Typography,
 } from "antd";
 import { Plus, RefreshCw } from "lucide-react";
-import { api, date, Failure, Heading, Status } from "./client";
+import { api, date, Failure, flowCategories, Heading, Status } from "./client";
 const Editor = lazy(() => import("./ResourceEditor"));
 const titles: Record<string, [string, string, string]> = {
   environments: [
     "环境管理",
-    "为开发、预发布和生产分别配置地址、变量与凭据。节点和流程按环境隔离。",
+    "为开发、预发布和生产分别配置地址、变量与凭据。节点、流程和测试组按环境隔离。",
     "创建环境",
   ],
   cases: [
@@ -73,6 +74,7 @@ export default function Resources({
   const { message, modal } = App.useApp();
   const page = Number(params.get("page")) || 1,
     q = params.get("q") || "",
+    category = params.get("category") || "",
     archived = params.get("archived") === "true";
   const env = workspace.environments.find((e: any) => e.id === eid);
   const edit = workspace.role !== "viewer" && !workspace.project.archived_at;
@@ -84,10 +86,10 @@ export default function Resources({
         ? envEdit
         : edit;
   const list = useQuery({
-    queryKey: ["resources", pid, section, eid, page, q, archived],
+    queryKey: ["resources", pid, section, eid, page, q, archived, category],
     queryFn: ({ signal }) =>
       api(
-        `/projects/${pid}/resources/${section}?page=${page}&q=${encodeURIComponent(q)}&archived=${archived}${eid ? "&environmentId=" + eid : ""}`,
+        `/projects/${pid}/resources/${section}?page=${page}&q=${encodeURIComponent(q)}&archived=${archived}${eid ? "&environmentId=" + eid : ""}${section === "flows" && category ? "&category=" + category : ""}`,
         "GET",
         undefined,
         signal,
@@ -203,7 +205,7 @@ export default function Resources({
                     modal.confirm({
                       title: `${archived ? "恢复" : "归档"}环境「${r.name}」？`,
                       content:
-                        "环境中的节点、流程和报告会保留。归档后不再接受新任务。",
+                        "环境中的节点、流程、测试组和报告会保留。归档后不再接受新任务。",
                       okText: archived ? "恢复" : "归档",
                       cancelText: "取消",
                       onOk: async () => {
@@ -334,6 +336,30 @@ export default function Resources({
         render: (v: string) => <b>{v}</b>,
       },
       { title: "测试用例", dataIndex: "case_title" },
+      {
+        title: "分类",
+        dataIndex: "category",
+        render: (value: string, row: any) => (
+          <Select
+            aria-label={`分类 · ${row.name}`}
+            value={value || "feature"}
+            options={flowCategories}
+            disabled={!envEdit || actionBusy}
+            style={{ width: 132 }}
+            onChange={(next) =>
+              void perform(async () => {
+                await api(
+                  `/projects/${pid}/flows/${row.id}/category`,
+                  "PATCH",
+                  { category: next },
+                );
+                await refresh();
+                message.success("分类已更新");
+              })
+            }
+          />
+        ),
+      },
       { title: "节点数", render: (_: any, r: any) => r.steps.length },
       { title: "创建时间", dataIndex: "created_at", render: date },
       {
@@ -532,6 +558,15 @@ export default function Resources({
             onSearch={(v) => update({ q: v, page: "1" })}
           />
           <Space>
+            {section === "flows" && (
+              <Select
+                aria-label="筛选流程分类"
+                value={category}
+                options={[{ value: "", label: "全部分类" }, ...flowCategories]}
+                style={{ width: 140 }}
+                onChange={(value) => update({ category: value, page: "1" })}
+              />
+            )}
             {section === "environments" && (
               <Segmented
                 options={["使用中", "已归档"]}

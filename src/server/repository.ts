@@ -168,6 +168,7 @@ export async function saveFlow(
   userId: string,
   name: string,
   steps: FlowStep[],
+  category = "feature",
 ) {
   await activeEnvironment(projectId, envId);
   await resolveSteps(projectId, envId, steps);
@@ -182,8 +183,16 @@ export async function saveFlow(
     await lockActiveScope(c, projectId, envId);
     return (
       await c.query(
-        "INSERT INTO flows(project_id,environment_id,case_id,name,steps,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
-        [projectId, envId, caseId, name, JSON.stringify(steps), userId],
+        "INSERT INTO flows(project_id,environment_id,case_id,name,steps,created_by,category) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+        [
+          projectId,
+          envId,
+          caseId,
+          name,
+          JSON.stringify(steps),
+          userId,
+          category,
+        ],
       )
     ).rows[0];
   });
