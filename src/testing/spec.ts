@@ -14,6 +14,14 @@ export const stepSchema = z.discriminatedUnion("action", [
     .strict(),
   z.object({ action: z.literal("click"), selector }).strict(),
   z.object({ action: z.literal("press"), selector, key: str }).strict(),
+  z.object({ action: z.literal("uploadFile"), selector, fileId: str }).strict(),
+  z
+    .object({
+      action: z.literal("readFile"),
+      fileId: str,
+      output: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]*$/),
+    })
+    .strict(),
   z
     .object({ action: z.literal("assertText"), selector, text: str, timeoutMs })
     .strict(),
@@ -71,6 +79,15 @@ export interface Variables {
   var: Record<string, string>;
   output: Record<string, string>;
 }
+export function testFileText(data: Buffer): string {
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(data);
+    if (text.includes("\0")) throw new Error();
+    return text;
+  } catch {
+    throw new Error("测试文件不是有效的 UTF-8 文本，不能读取为文本输入");
+  }
+}
 export function interpolate(value: string, context: Variables) {
   return value.replace(/\{\{\s*([a-zA-Z][\w.]*)\s*\}\}/g, (_, path: string) => {
     if (path === "baseUrl") return context.baseUrl;
@@ -84,7 +101,16 @@ export function interpolate(value: string, context: Variables) {
     const group = context[scope as "param" | "secret" | "var" | "output"];
     if (!Object.hasOwn(group, key))
       throw new Error(`Missing variable: ${path}`);
-    return group[key]!;
+    const resolved = group[key]!;
+    if (scope !== "param") return resolved;
+    return resolved.replace(
+      /\{\{\s*output\.([a-zA-Z][\w]*)\s*\}\}/g,
+      (_, outputKey: string) => {
+        if (!Object.hasOwn(context.output, outputKey))
+          throw new Error(`Missing variable: output.${outputKey}`);
+        return context.output[outputKey]!;
+      },
+    );
   });
 }
 export const stepJson = {
@@ -98,6 +124,8 @@ export const stepJson = {
         "fill",
         "click",
         "press",
+        "uploadFile",
+        "readFile",
         "assertText",
         "assertVisible",
         "waitFor",
@@ -120,6 +148,7 @@ export const stepJson = {
     name: { type: "string" },
     output: { type: "string" },
     message: { type: "string" },
+    fileId: { type: "string" },
     timeoutMs: { type: "integer", minimum: 1000, maximum: 180000 },
   },
   required: ["action"],

@@ -15,13 +15,16 @@ import {
   Segmented,
   Space,
   Spin,
+  Table,
   Tag,
+  Tooltip,
   Typography,
   Upload,
 } from "antd";
 import {
   Bot,
   CheckCheck,
+  FolderOpen,
   History,
   Paperclip,
   Plus,
@@ -36,6 +39,23 @@ import { api, date, Failure, Heading, Status } from "./client";
 import { useIntervention } from "./Intervention";
 import "./chat.css";
 const active = (run: any) => run && ["queued", "running"].includes(run.status);
+function fileSelectionError(files: Array<{ size: number }>) {
+  if (files.length > 5) return "每条消息的附件和测试文件合计最多 5 个";
+  if (
+    files.reduce((total, file) => total + Number(file.size), 0) >
+    12 * 1024 * 1024
+  )
+    return "每条消息的附件和测试文件合计不能超过 12 MiB";
+  return "";
+}
+function readLibraryDraft(key: string) {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(key) || "[]");
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
 const phaseNames: Record<string, string> = {
   understanding: "理解需求",
   investigating: "调查目标页面",
@@ -53,6 +73,8 @@ const toolNames: Record<string, string> = {
   save_node: "保存节点",
   finish_flow: "保存测试流程",
   read_attachment: "读取测试文件",
+  list_test_files: "查找项目测试文件",
+  read_test_file: "读取项目测试文件",
   report_progress: "更新进度",
 };
 function Attachment({ file }: { file: any }) {
@@ -94,6 +116,9 @@ export default function AgentChat({
     { message } = App.useApp();
   const [draft, setDraft] = useState(""),
     [files, setFiles] = useState<any[]>([]),
+    [libraryFiles, setLibraryFiles] = useState<any[]>(() =>
+      readLibraryDraft(`looplab-file-draft:${pid}:${sid || eid}`),
+    ),
     [busy, setBusy] = useState(false),
     [uploading, setUploading] = useState(false),
     [error, setError] = useState<Error | null>(null);
@@ -106,9 +131,14 @@ export default function AgentChat({
     [rename, setRename] = useState<any>(null),
     [name, setName] = useState(""),
     [olderBusy, setOlderBusy] = useState(false);
+  const [filePicker, setFilePicker] = useState(false),
+    [filePage, setFilePage] = useState(1),
+    [fileSearch, setFileSearch] = useState(""),
+    [fileSelection, setFileSelection] = useState<Record<string, any>>({});
   const uploadLock = useRef(false),
     hydrated = useRef(""),
     draftKey = useRef(""),
+    fileDraftKey = useRef(""),
     createdSession = useRef("");
   const eventScroll = useRef<HTMLDivElement>(null);
   const followEvents = useRef(true);
@@ -122,6 +152,25 @@ export default function AgentChat({
       !!env &&
       !env.archived_at;
   const listKey = ["chat-list", pid, eid, page, query, archived];
+  const libraryFileId = params.get("file") || "";
+  const libraryFile = useQuery({
+    queryKey: ["project-file", pid, libraryFileId],
+    queryFn: ({ signal }) =>
+      api(`/projects/${pid}/files/${libraryFileId}`, "GET", undefined, signal),
+    enabled: !!libraryFileId,
+    retry: false,
+  });
+  const fileOptions = useQuery({
+    queryKey: ["project-files", pid, filePage, fileSearch, false],
+    queryFn: ({ signal }) =>
+      api(
+        `/projects/${pid}/files?page=${filePage}&pageSize=20&q=${encodeURIComponent(fileSearch)}&archived=false`,
+        "GET",
+        undefined,
+        signal,
+      ),
+    enabled: filePicker,
+  });
   const sessions = useQuery({
     queryKey: listKey,
     queryFn: () =>
@@ -177,18 +226,72 @@ export default function AgentChat({
   useEffect(() => {
     setError(null);
     const key = `looplab-draft:${pid}:${sid || eid}`;
+    const fileKey = `looplab-file-draft:${pid}:${sid || eid}`;
     if (createdSession.current === sid && sid) {
       createdSession.current = "";
       hydrated.current = sid;
       draftKey.current = key;
+      if (fileDraftKey.current && fileDraftKey.current !== fileKey) {
+        const saved = sessionStorage.getItem(fileDraftKey.current);
+        if (saved) sessionStorage.setItem(fileKey, saved);
+        sessionStorage.removeItem(fileDraftKey.current);
+      }
+      fileDraftKey.current = fileKey;
       return;
     }
     setFiles([]);
+    setLibraryFiles(readLibraryDraft(fileKey));
     hydrated.current = "";
     outbox.current = null;
     draftKey.current = key;
+    fileDraftKey.current = fileKey;
     setDraft(sessionStorage.getItem(key) || "");
   }, [sid, pid, eid]);
+  function changeLibraryFiles(next: any[]) {
+    setLibraryFiles(next);
+    if (fileDraftKey.current) {
+      if (next.length)
+        sessionStorage.setItem(
+          fileDraftKey.current,
+          JSON.stringify(
+            next.map(({ id, name, size, mime_type, archived_at }) => ({
+              id,
+              name,
+              size,
+              mime_type,
+              archived_at,
+            })),
+          ),
+        );
+      else sessionStorage.removeItem(fileDraftKey.current);
+    }
+  }
+  useEffect(() => {
+    if (!libraryFileId || (!libraryFile.data && !libraryFile.error)) return;
+    if (libraryFile.data && !libraryFile.data.archived_at) {
+      const nextFiles = libraryFiles.some(
+        (item) => item.id === libraryFile.data.id,
+      )
+        ? libraryFiles
+        : [...libraryFiles, libraryFile.data];
+      const problem = fileSelectionError([...files, ...nextFiles]);
+      if (problem) setError(new Error(problem));
+      else changeLibraryFiles(nextFiles);
+    } else {
+      setError(libraryFile.error || new Error("该测试文件已归档"));
+    }
+    const next = new URLSearchParams(params);
+    next.delete("file");
+    setParams(next, { replace: true });
+  }, [
+    libraryFileId,
+    libraryFile.data,
+    libraryFile.error,
+    params,
+    setParams,
+    files,
+    libraryFiles,
+  ]);
   useEffect(() => {
     if (data && hydrated.current !== sid) {
       hydrated.current = sid;
@@ -300,8 +403,13 @@ export default function AgentChat({
   }
   async function upload(incoming: File[]) {
     if (readOnly || uploadLock.current || busy) return;
-    if (files.length + incoming.length > 5) {
-      message.error("每条消息最多 5 个附件");
+    const problem = fileSelectionError([
+      ...files,
+      ...libraryFiles,
+      ...incoming,
+    ]);
+    if (problem) {
+      message.error(problem);
       return;
     }
     uploadLock.current = true;
@@ -339,33 +447,45 @@ export default function AgentChat({
       running ||
       busy ||
       uploading ||
-      (!draft.trim() && !files.length)
+      (!draft.trim() && !files.length && !libraryFiles.length)
     )
       return;
+    const problem = fileSelectionError([...files, ...libraryFiles]);
+    if (problem) {
+      setError(new Error(problem));
+      return;
+    }
     setBusy(true);
     setError(null);
     const text = draft,
       ids = files.map((f) => f.id),
-      signature = JSON.stringify([text, ids]);
+      testFileIds = libraryFiles.map((file) => file.id),
+      signature = JSON.stringify([text, ids, testFileIds]);
     if (outbox.current?.signature !== signature)
       outbox.current = { signature, id: crypto.randomUUID() };
     try {
       const clientId = outbox.current!.id;
+      const previousSid = currentSid.current;
       const id = await ensureSession();
       await api(`/chat/sessions/${id}/messages`, "POST", {
         text,
         attachmentIds: ids,
+        testFileIds,
         clientId,
       });
       setDraft("");
       setFiles([]);
+      setLibraryFiles([]);
       outbox.current = null;
       sessionStorage.removeItem(`looplab-draft:${pid}:${id}`);
       sessionStorage.removeItem(`looplab-draft:${pid}:${eid}`);
+      sessionStorage.removeItem(`looplab-file-draft:${pid}:${id}`);
+      if (!previousSid)
+        sessionStorage.removeItem(`looplab-file-draft:${pid}:${eid}`);
       await cache.invalidateQueries({ queryKey: ["chat", id] });
       void refreshList();
     } catch (e) {
-      setDraft(text);
+      setDraft(draft);
       setError(e as Error);
     } finally {
       setBusy(false);
@@ -502,7 +622,13 @@ export default function AgentChat({
         {connection || "发送消息后，实时展示调查与执行过程。"}
       </p>
       {run && (
-        <div className={run.status === "failed" ? "chat-current chat-current-failed" : "chat-current"}>
+        <div
+          className={
+            run.status === "failed"
+              ? "chat-current chat-current-failed"
+              : "chat-current"
+          }
+        >
           <strong>
             {running
               ? phaseNames[phase?.stage] ||
@@ -651,6 +777,19 @@ export default function AgentChat({
         <Space wrap>
           {m.attachments?.map((f: any) => (
             <Attachment key={f.id} file={f} />
+          ))}
+          {m.libraryFiles?.map((file: any) => (
+            <a
+              className="chat-file"
+              key={file.id}
+              href={`/api/projects/${pid}/files/${file.id}/download`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <FolderOpen size={14} />
+              测试文件 · {file.name}
+              {file.archived_at ? "（已归档）" : ""}
+            </a>
           ))}
         </Space>
       </div>
@@ -850,6 +989,24 @@ export default function AgentChat({
                   ))}
                 </div>
               )}
+              {libraryFiles.length > 0 && (
+                <div className="chat-pending-files" aria-label="已选测试文件">
+                  {libraryFiles.map((file) => (
+                    <Tag
+                      key={file.id}
+                      closable={!busy && !uploading}
+                      onClose={(event) => {
+                        event.preventDefault();
+                        changeLibraryFiles(
+                          libraryFiles.filter((item) => item.id !== file.id),
+                        );
+                      }}
+                    >
+                      测试文件 · {file.name}
+                    </Tag>
+                  ))}
+                </div>
+              )}
               <Sender
                 value={draft}
                 onChange={changeDraft}
@@ -861,24 +1018,40 @@ export default function AgentChat({
                 onSubmit={() => void send()}
                 onPasteFile={(list) => void upload(Array.from(list))}
                 prefix={
-                  <Upload
-                    accept=".png,.jpg,.jpeg,.webp,.pdf,.txt,.md,.csv,.json,.yaml,.yml,.ts,.tsx,.js,.jsx,.feature,.log"
-                    showUploadList={false}
-                    multiple
-                    disabled={readOnly || busy || uploading}
-                    beforeUpload={(file, list) => {
-                      if (file === list[0]) void upload(list);
-                      return false;
-                    }}
-                  >
-                    <Button
-                      aria-label="添加附件"
-                      type="text"
-                      icon={<Paperclip size={18} />}
-                      loading={uploading}
+                  <Space size={0}>
+                    <Upload
+                      accept=".png,.jpg,.jpeg,.webp,.pdf,.txt,.md,.csv,.json,.yaml,.yml,.ts,.tsx,.js,.jsx,.feature,.log"
+                      showUploadList={false}
+                      multiple
                       disabled={readOnly || busy || uploading}
-                    />
-                  </Upload>
+                      beforeUpload={(file, list) => {
+                        if (file === list[0]) void upload(list);
+                        return false;
+                      }}
+                    >
+                      <Button
+                        aria-label="添加附件"
+                        type="text"
+                        icon={<Paperclip size={18} />}
+                        loading={uploading}
+                        disabled={readOnly || busy || uploading}
+                      />
+                    </Upload>
+                    <Tooltip title="从测试文件库选择">
+                      <Button
+                        aria-label="选择测试文件库文件"
+                        type="text"
+                        icon={<FolderOpen size={18} />}
+                        disabled={readOnly || busy || uploading || running}
+                        onClick={() => {
+                          setFileSelection({});
+                          setFilePage(1);
+                          setFileSearch("");
+                          setFilePicker(true);
+                        }}
+                      />
+                    </Tooltip>
+                  </Space>
                 }
                 suffix={
                   <Space>
@@ -900,7 +1073,9 @@ export default function AgentChat({
                         disabled={
                           readOnly ||
                           uploading ||
-                          (!draft.trim() && !files.length)
+                          (!draft.trim() &&
+                            !files.length &&
+                            !libraryFiles.length)
                         }
                         onClick={() => void send()}
                       >
@@ -912,7 +1087,10 @@ export default function AgentChat({
               />
               <div className="chat-composer-note">
                 <span>{model ? `${model} · ` : ""}Responses API</span>
-                <span>Enter 发送 · Shift+Enter 换行 · 每个附件 ≤ 5 MB</span>
+                <span>
+                  Enter 发送 · Shift+Enter 换行 · 临时附件 ≤ 5 MiB · 每条合计 ≤
+                  12 MiB
+                </span>
               </div>
             </div>
           </main>
@@ -927,6 +1105,98 @@ export default function AgentChat({
       >
         {drawer === "history" ? history : statusPanel}
       </Drawer>
+      <Modal
+        title="选择测试文件库文件"
+        open={filePicker}
+        onCancel={() => setFilePicker(false)}
+        onOk={() => {
+          const selected = Object.values(fileSelection);
+          const nextFiles = [
+            ...libraryFiles,
+            ...selected.filter(
+              (file) => !libraryFiles.some((item) => item.id === file.id),
+            ),
+          ];
+          const problem = fileSelectionError([...files, ...nextFiles]);
+          if (problem) {
+            message.error(problem);
+            return;
+          }
+          changeLibraryFiles(nextFiles);
+          setFilePicker(false);
+        }}
+        okText="添加到对话"
+        cancelText="取消"
+        okButtonProps={{ disabled: !Object.keys(fileSelection).length }}
+        width={720}
+        destroyOnHidden
+      >
+        <Typography.Paragraph type="secondary">
+          文本、图片和 PDF 可供 Agent 理解；其他文件可作为页面上传的测试输入。
+          附件和测试文件每条合计最多 5 个、12 MiB。
+        </Typography.Paragraph>
+        <Input.Search
+          aria-label="搜索文件库"
+          placeholder="搜索文件名"
+          allowClear
+          onSearch={(value) => {
+            setFilePage(1);
+            setFileSearch(value);
+          }}
+          style={{ marginBottom: 12 }}
+        />
+        <Failure
+          error={fileOptions.error}
+          retry={() => void fileOptions.refetch()}
+        />
+        <Table
+          size="small"
+          rowKey="id"
+          loading={fileOptions.isFetching}
+          dataSource={fileOptions.data?.items || []}
+          scroll={{ x: 500 }}
+          rowSelection={{
+            selectedRowKeys: Object.keys(fileSelection),
+            preserveSelectedRowKeys: true,
+            onSelect: (record: any, selected: boolean) => {
+              setFileSelection((old) => {
+                const next = { ...old };
+                if (selected) next[record.id] = record;
+                else delete next[record.id];
+                return next;
+              });
+            },
+            onSelectAll: (selected: boolean, _rows: any[], changed: any[]) => {
+              setFileSelection((old) => {
+                const next = { ...old };
+                for (const file of changed) {
+                  if (selected) next[file.id] = file;
+                  else delete next[file.id];
+                }
+                return next;
+              });
+            },
+          }}
+          pagination={{
+            current: filePage,
+            pageSize: 20,
+            total: fileOptions.data?.total || 0,
+            showSizeChanger: false,
+            onChange: (value) => setFilePage(value),
+          }}
+          columns={[
+            { title: "文件名称", dataIndex: "name" },
+            {
+              title: "大小",
+              dataIndex: "size",
+              render: (size: number) =>
+                size === 0
+                  ? "0 B"
+                  : `${Math.max(1, Math.ceil(size / 1024))} KB`,
+            },
+          ]}
+        />
+      </Modal>
       <Modal
         title="重命名会话"
         open={!!rename}

@@ -21,7 +21,7 @@ import {
   saveFlow,
   resolveSteps,
 } from "./repository.js";
-import { specSchema, flowSchema } from "../testing/spec.js";
+import { specSchema, flowSchema, interpolate } from "../testing/spec.js";
 import { exportScript } from "../testing/export.js";
 import { cancelRun } from "./worker.js";
 import { interventionRoutes } from "./intervention.js";
@@ -520,10 +520,44 @@ export async function routes(app: FastifyInstance) {
     );
     if (!flow) throw new HttpError(404, "流程不存在");
     const nodes = await resolveSteps(pid, flow.environment_id, flow.steps);
+    const env = await environment(pid, flow.environment_id);
+    const fileIds = new Set<string>();
+    for (const node of nodes) {
+      for (const step of specSchema.parse(node.spec).steps) {
+        if (step.action !== "uploadFile" && step.action !== "readFile")
+          continue;
+        let fileId: string;
+        try {
+          fileId = interpolate(step.fileId, {
+            baseUrl: env.base_url,
+            param: node.params,
+            var: env.variables,
+            secret: {},
+            output: {},
+          });
+        } catch {
+          throw new HttpError(
+            400,
+            "导出需要能从流程参数或环境变量确定测试文件 ID",
+          );
+        }
+        if (!id.safeParse(fileId).success)
+          throw new HttpError(400, "导出流程中的测试文件 ID 无效");
+        fileIds.add(fileId);
+      }
+    }
+    const files = fileIds.size
+      ? await query(
+          "SELECT id,name,mime_type,sha256 FROM test_files WHERE project_id=$1 AND id=ANY($2::uuid[])",
+          [pid, [...fileIds]],
+        )
+      : [];
+    if (files.length !== fileIds.size)
+      throw new HttpError(400, "导出流程引用的测试文件不存在或不属于当前项目");
     reply
       .header("Content-Disposition", 'attachment; filename="flow.ts"')
       .type("text/plain");
-    return exportScript(nodes);
+    return exportScript(nodes, files);
   });
   app.post("/api/projects/:pid/runs", async (r) => {
     const pid = path(r, "pid");

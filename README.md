@@ -12,6 +12,7 @@
 - 独立 Agent 对话页：多轮讨论、文件/图片/PDF 输入、Responses 流式回复、实时执行动态、会话归档与团队共享。
 - Ant Design X 聊天组件与 Ant Design 管理界面、TanStack Query 缓存、React Router 深链接；列表按需分页与搜索。
 - 项目独立知识库，文本与 Markdown 导入、编辑。
+- 项目级测试文件库：任意文件上传、查找、下载与归档；文件在项目成员和各环境之间共享，归档不影响旧流程。
 - 独立环境管理页；地址、变量与凭据键值表单；环境复制、归档和恢复；复制时同步复制节点版本和流程。
 - 自然语言用例 → 真实浏览器探索 → 生成参数化节点 → 组合流程 → 全新浏览器回放。
 - 按项目共享节点；环境独立版本；流程固定引用版本；相同 spec 复用已有版本。
@@ -55,7 +56,7 @@ cp .env.example .env.local
 | `HOST`                | 服务监听地址，默认 `127.0.0.1`                                |
 | `PORT`                | 服务监听端口，默认 `4310`；整数范围 `1–65535`                 |
 | `PLAYWRIGHT_CHANNEL`  | 使用本机 Chrome 时设为 `chrome`；留空使用 Playwright Chromium |
-| `RUN_TIMEOUT_MS`      | 单次运行总超时，默认 `600000` 毫秒；整数范围 `1–2147483647` |
+| `RUN_TIMEOUT_MS`      | 单次运行总超时，默认 `600000` 毫秒；整数范围 `1–2147483647`   |
 | `DEMO_TARGET_ENABLED` | 是否启用验收用的 `/demo` 对话平台，默认 false                 |
 | `COOKIE_SECURE`       | HTTPS 部署设为 true                                           |
 
@@ -93,7 +94,7 @@ npm run dev:web
 
 ## 团队共享
 
-推荐团队共用一个 Node.js 服务地址和 PostgreSQL 数据库。其他成员先注册账户，由项目所有者在“项目成员”中按邮箱添加。成员看到的是相同的知识、节点、流程、截图和报告。
+推荐团队共用一个 Node.js 服务地址和 PostgreSQL 数据库。其他成员先注册账户，由项目所有者在“项目成员”中按邮箱添加。成员看到的是相同的知识、测试文件、节点、流程、截图和报告。
 
 也支持多个 Node.js 实例连接同一远程 PostgreSQL：使用相同的 `DATABASE_URL` 和 `APP_SECRET`，并确保所有执行器都能访问被测环境 URL。共享队列通过数据库行锁领取任务，避免两个执行器领取同一个任务。多台机器不要把各自含义不同的 `localhost` 当作同一个被测环境。
 
@@ -103,7 +104,7 @@ npm run dev:web
 
 1. 创建项目，在知识库描述产品操作路径与验证标准。
 2. 创建环境，填写真实目标 URL、变量、登录凭据。
-3. 打开“Agent 对话”描述目标，也可上传测试文件、PDF、截图，或先讨论需求。
+3. 在“测试文件库”上传需要复用的输入文件。打开“Agent 对话”描述目标，可选择库文件，也可临时上传附件或先讨论需求。
 4. 已有用例点击“与 Agent 生成”进入同一聊天页面。Agent 调查页面并查询共享节点，缺少的能力才新建。
 5. 在运行详情查看实际步骤、断言和截图。通过由独立回放结果决定。
 6. 后续使用“直接回放”，无需再次调用模型或生成节点。
@@ -114,6 +115,8 @@ npm run dev:web
 健康检查适合验证服务和关键入口是否可用，功能检查针对具体能力，回归检查用于功能变更后的整体验收，一次性检查用于临时调查。全量检查通常是覆盖多个类别的测试组：同一流程可以加入多个组，无需重复生成。组内流程各自使用新的浏览器，顺序只保证先后执行，不共享浏览器登录状态。
 
 节点可使用 `navigate`、`reload`、`fill`、`click`、`press`、`waitFor`、`assertText`、`assertVisible`、`extractText` 和 `screenshot`。等待和断言可配置 1–180 秒的超时。
+
+测试文件库中的文件单个最大 10 MiB，项目内跨环境共享。文件上传后内容不可变，重新上传得到新的文件 ID；归档文件仍能被原有流程和对话引用。`uploadFile` 节点可将任意库文件原样上传到被测网页，`readFile` 可将 UTF-8 文本读入输出变量供后续步骤使用。节点可通过 `{{param.fileId}}` 接收文件 ID，组合同一节点和不同文件；流程参数也可绑定 `{{output.变量名}}`，把上一步输出传给后续节点。Agent 可读取文本，在对话中选择的 PNG、JPEG、WebP 和 PDF 可直接作为模型输入；其他二进制文件可用于网页上传。每条对话中库文件和普通附件合计最多 5 个、12 MiB。
 
 人工接管可通过 `pauseForHuman` 主动请求，或先用 `watchElement`、`watchDialog`、`watchResponse` 注册监听。监听在后续步骤间持续生效，直到执行 `clearWatchers` 或浏览器关闭；元素消失后再次出现时会再次提醒。元素按约 250 毫秒间隔检查，短暂闪现可能漏报。`waitForHidden` 可等待元素消失，`waitForResponse` 可等待该步骤开始后的网络响应。触发后，在运行报告中操作当前浏览器并点击继续，也可以取消运行。测试组会等待当前流程处理完毕。人工等待不计入运行总超时；触发前已经开始的浏览器动作仍可能完成或达到自己的超时，平台不会自动重试它。
 
@@ -129,6 +132,8 @@ npm run dev:web
 
 导出的 `.ts` 流程在 ESM 项目中运行，安装 `playwright` 和 `tsx`，设置 `TEST_BASE_URL`、`TEST_SECRET_<key>`、`TEST_VAR_<key>`；也可设置 `PLAYWRIGHT_CHANNEL=chrome`。脚本不包含环境凭据，也不依赖 LoopLab 或 pi。
 
+导出的流程若引用测试文件，还需通过 `TEST_FILE_PATHS` 提供文件 ID 到本地文件路径的 JSON 映射，例如 `{"文件ID":"/path/to/input.csv"}`。脚本会校验本地文件的 SHA-256 与导出时记录的值一致，再读取或上传；导出文件不包含库文件本身。
+
 ## 验证
 
 ```bash
@@ -138,6 +143,7 @@ npm run verify:self-chat    # 在自举项目中验证真实 AI 对话、上下�
 npx tsx scripts/verify-self-suites.ts        # 测试组管理、顺序与汇总
 npx tsx scripts/verify-self-suites-cancel.ts # 整组取消与未执行项目
 npx tsx scripts/verify-self-intervention.ts  # 监听、人工接管与继续
+npx tsx scripts/verify-self-files.ts         # 测试文件库、Agent 与文件驱动流程
 npm run verify:self-chat -- --replay # 复用聊天测试流程，目标仍调用真实模型
 npm run verify:self -- --replay # 复用已生成的自举流程
 ```

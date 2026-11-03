@@ -10,6 +10,7 @@ import { expect } from "playwright/test";
 import { config } from "../server/config.js";
 import {
   interpolate,
+  testFileText,
   type Step,
   type Variables,
   type NodeSpec,
@@ -27,6 +28,13 @@ export interface ManualAction {
   key?: string;
   deltaY?: number;
 }
+export interface TestFile {
+  id: string;
+  name: string;
+  mime_type: string;
+  sha256: string;
+  data: Buffer;
+}
 type Watcher = { stop: () => void; check?: () => Promise<void> };
 
 export class BrowserSession {
@@ -37,6 +45,7 @@ export class BrowserSession {
   private dialog?: Dialog;
   private dialogClosed?: Promise<void>;
   private resolveDialog?: () => void;
+  private fileOutputs = new Set<string>();
   page!: Page;
   readonly outputs: Record<string, string> = {};
   constructor(
@@ -50,6 +59,8 @@ export class BrowserSession {
     ) => Promise<string>,
     readonly signal: AbortSignal,
     readonly onIntervention?: (info: InterventionInfo) => Promise<void>,
+    readonly loadTestFile?: (id: string) => Promise<TestFile>,
+    readonly onTestFileUsed?: () => void,
   ) {}
   async open() {
     this.signal.throwIfAborted();
@@ -420,6 +431,24 @@ export class BrowserSession {
       this.clearWatchers();
       return;
     }
+    if (step.action === "uploadFile" || step.action === "readFile") {
+      if (!this.loadTestFile) throw new Error("当前执行环境不支持测试文件库");
+      const file = await this.loadTestFile(resolve(step.fileId));
+      if (step.action === "uploadFile") {
+        await this.page.locator(resolve(step.selector)).setInputFiles({
+          name: file.name,
+          mimeType: file.mime_type,
+          buffer: file.data,
+        });
+        this.onTestFileUsed?.();
+      } else {
+        const text = testFileText(file.data);
+        this.onTestFileUsed?.();
+        this.outputs[step.output] = text;
+        this.fileOutputs.add(step.output);
+      }
+      return;
+    }
     const locator = this.page.locator(resolve(step.selector));
     switch (step.action) {
       case "fill":
@@ -449,6 +478,7 @@ export class BrowserSession {
         break;
       case "extractText":
         this.outputs[step.output] = await locator.innerText();
+        this.fileOutputs.delete(step.output);
         return { output: step.output, value: this.outputs[step.output] };
     }
   }
@@ -471,12 +501,24 @@ export class BrowserSession {
         await this.step(step, params);
         await onStep(step, index, "passed");
       } catch (error) {
-        await onStep(
-          step,
-          index,
-          "failed",
-          error instanceof Error ? error.message : String(error),
-        );
+        const encoded = JSON.stringify(step);
+        const usedParams = [
+          ...encoded.matchAll(/\{\{\s*param\.([a-zA-Z][\w]*)\s*\}\}/g),
+        ].map((match) => match[1]!);
+        const usesFileText = [...this.fileOutputs].some((key) => {
+          const reference = new RegExp(`\\{\\{\\s*output\\.${key}\\s*\\}\\}`);
+          return (
+            reference.test(encoded) ||
+            usedParams.some((param) => reference.test(params[param] ?? ""))
+          );
+        });
+        const message = usesFileText
+          ? `步骤 ${step.action} 失败（测试文件内容已隐藏）`
+          : error instanceof Error
+            ? error.message
+            : String(error);
+        await onStep(step, index, "failed", message);
+        if (usesFileText) throw new Error(message);
         throw error;
       }
     }

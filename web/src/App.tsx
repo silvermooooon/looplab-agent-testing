@@ -31,6 +31,7 @@ import {
   Blocks,
   BookOpen,
   FlaskConical,
+  Files,
   FolderKanban,
   History,
   Layers,
@@ -48,6 +49,7 @@ const Resources = lazy(() => import("./admin/Resources"));
 const RunDetail = lazy(() => import("./admin/RunDetail"));
 const TestSuites = lazy(() => import("./admin/TestSuites"));
 const SuiteRunDetail = lazy(() => import("./admin/SuiteRunDetail"));
+const FileLibrary = lazy(() => import("./admin/FileLibrary"));
 export const sections = [
   ["agent", "Agent 对话", MessageSquare],
   ["environments", "环境管理", Layers],
@@ -56,6 +58,7 @@ export const sections = [
   ["flows", "测试流程", Workflow],
   ["suites", "测试组", ListChecks],
   ["knowledge", "知识库", BookOpen],
+  ["files", "测试文件库", Files],
   ["runs", "运行记录", History],
   ["team", "项目成员", Users],
 ] as const;
@@ -419,6 +422,13 @@ function Shell({ user, model }: { user: any; model: string }) {
                       p.set("suiteRun", id);
                       setSearch(p);
                     }}
+                  />
+                ) : section === "files" ? (
+                  <FileLibrary
+                    key={pid}
+                    pid={pid}
+                    eid={selected}
+                    workspace={data}
                   />
                 ) : section === "agent" ? (
                   <AgentChat

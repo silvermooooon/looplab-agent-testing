@@ -143,10 +143,16 @@ export async function chatRoutes(app: FastifyInstance) {
       [s.id, before ?? null],
     );
     messages.reverse();
-    const [attachments, runs, artifacts] = await Promise.all([
+    const [attachments, libraryFiles, runs, artifacts] = await Promise.all([
       query(
         "SELECT id,message_id,name,mime_type,size FROM chat_attachments WHERE conversation_id=$1 AND message_id=ANY($2::uuid[])",
         [s.id, messages.map((m) => m.id)],
+      ),
+      query(
+        `SELECT l.message_id,f.id,f.name,f.mime_type,f.size,f.sha256,f.archived_at
+         FROM chat_message_test_files l JOIN test_files f ON f.id=l.file_id
+         WHERE l.message_id=ANY($1::uuid[]) ORDER BY l.position`,
+        [messages.map((m) => m.id)],
       ),
       query(
         `SELECT ${runColumns} FROM runs WHERE conversation_id=$1 ORDER BY created_at DESC LIMIT 25`,
@@ -167,6 +173,9 @@ export async function chatRoutes(app: FastifyInstance) {
       messages: messages.map((m) => ({
         ...m,
         attachments: attachments.filter((a) => a.message_id === m.id),
+        libraryFiles: libraryFiles
+          .filter((file) => file.message_id === m.id)
+          .map(({ message_id, ...file }) => file),
       })),
       runs,
       artifacts,
@@ -279,11 +288,16 @@ export async function chatRoutes(app: FastifyInstance) {
       .object({
         text: z.string().trim().max(20000).default(""),
         attachmentIds: z.array(uuid).max(5).default([]),
+        testFileIds: z.array(uuid).max(5).default([]),
         clientId: uuid,
       })
       .refine(
-        (b) => b.text.length || b.attachmentIds.length,
+        (b) => b.text.length || b.attachmentIds.length || b.testFileIds.length,
         "请输入文字或添加附件",
+      )
+      .refine(
+        (b) => b.attachmentIds.length + b.testFileIds.length <= 5,
+        "每条消息最多添加 5 个附件或测试文件",
       )
       .parse(r.body);
     return transaction(async (c) => {
@@ -322,7 +336,18 @@ export async function chatRoutes(app: FastifyInstance) {
       ).rows;
       if (files.length !== b.attachmentIds.length)
         throw new HttpError(400, "附件不存在、重复或不属于当前会话");
-      if (files.reduce((n, f) => n + f.size, 0) > 12 * 1024 * 1024)
+      const libraryFiles = (
+        await c.query(
+          "SELECT id,size FROM test_files WHERE id=ANY($1::uuid[]) AND project_id=$2",
+          [[...new Set(b.testFileIds)], s.project_id],
+        )
+      ).rows;
+      if (libraryFiles.length !== b.testFileIds.length)
+        throw new HttpError(400, "测试文件不存在、重复或不属于当前项目");
+      if (
+        [...files, ...libraryFiles].reduce((n, f) => n + f.size, 0) >
+        12 * 1024 * 1024
+      )
         throw new HttpError(400, "单条消息附件合计不能超过 12 MB");
       const run = (
         await c.query(
@@ -349,12 +374,23 @@ export async function chatRoutes(app: FastifyInstance) {
         [user.id, b.attachmentIds],
       );
       await c.query(
+        `INSERT INTO chat_message_test_files(message_id,file_id,position)
+         SELECT $1, id, position::int FROM unnest($2::uuid[]) WITH ORDINALITY files(id,position)`,
+        [user.id, b.testFileIds],
+      );
+      await c.query(
         "INSERT INTO chat_messages(conversation_id,role,run_id) VALUES($1,'assistant',$2)",
         [s.id, run.id],
       );
       await c.query(
         "UPDATE chat_sessions SET updated_at=now(),title=CASE WHEN title='新对话' THEN $2 ELSE title END WHERE id=$1",
-        [s.id, (b.text || files.length + " 个附件").slice(0, 60)],
+        [
+          s.id,
+          (b.text || files.length + libraryFiles.length + " 个附件").slice(
+            0,
+            60,
+          ),
+        ],
       );
       return { runId: run.id };
     });

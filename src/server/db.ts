@@ -129,5 +129,22 @@ export async function migrate() {
       CREATE INDEX intervention_commands_pending_idx ON intervention_commands(run_id,seq) WHERE status='pending';
       INSERT INTO qa.schema_migrations(version) VALUES(5);
     `);
+    const v6 = await c.query(
+      "SELECT 1 FROM qa.schema_migrations WHERE version=6",
+    );
+    if (!v6.rowCount)
+      await c.query(`
+      CREATE TABLE test_files(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),project_id uuid NOT NULL REFERENCES projects(id),name text NOT NULL,mime_type text NOT NULL,size integer NOT NULL,sha256 text NOT NULL,data bytea NOT NULL,created_by uuid NOT NULL REFERENCES users(id),created_at timestamptz NOT NULL DEFAULT now(),archived_at timestamptz);
+      CREATE INDEX test_files_project_idx ON test_files(project_id,created_at DESC,id);
+      INSERT INTO qa.schema_migrations(version) VALUES(6);
+    `);
+    const v7 = await c.query(
+      "SELECT 1 FROM qa.schema_migrations WHERE version=7",
+    );
+    if (!v7.rowCount)
+      await c.query(`
+      CREATE TABLE chat_message_test_files(message_id uuid NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,file_id uuid NOT NULL REFERENCES test_files(id),position integer NOT NULL,PRIMARY KEY(message_id,file_id),UNIQUE(message_id,position));
+      INSERT INTO qa.schema_migrations(version) VALUES(7);
+    `);
   });
 }
