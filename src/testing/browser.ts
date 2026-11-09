@@ -7,6 +7,10 @@ import {
   type Response,
 } from "playwright";
 import { expect } from "playwright/test";
+import { existsSync } from "node:fs";
+import { mkdir, rename, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
 import { config } from "../server/config.js";
 import {
   interpolate,
@@ -41,6 +45,12 @@ type PreviewAction = {
   selector?: string;
   at: number;
 };
+export interface BrowserSessionOptions {
+  allowedOrigins?: string[];
+  allowAuthRedirects?: boolean;
+  storageStatePath?: string;
+  trackPopups?: boolean;
+}
 
 export class BrowserSession {
   private browser?: Browser;
@@ -54,6 +64,7 @@ export class BrowserSession {
   private previewAction?: PreviewAction;
   private previewClick?: { x: number; y: number; at: number; url: string };
   private previewMasks = new Set<string>();
+  private primaryPage?: Page;
   page!: Page;
   readonly outputs: Record<string, string> = {};
   constructor(
@@ -69,6 +80,7 @@ export class BrowserSession {
     readonly onIntervention?: (info: InterventionInfo) => Promise<void>,
     readonly loadTestFile?: (id: string) => Promise<TestFile>,
     readonly onTestFileUsed?: () => void,
+    readonly options: BrowserSessionOptions = {},
   ) {}
   async open() {
     this.signal.throwIfAborted();
@@ -78,19 +90,24 @@ export class BrowserSession {
     });
     this.context = await this.browser.newContext({
       viewport: { width: 1440, height: 960 },
+      ...(this.options.storageStatePath &&
+      existsSync(this.options.storageStatePath)
+        ? { storageState: this.options.storageStatePath }
+        : {}),
     });
     this.context.setDefaultTimeout(12000);
     await this.context.route("**/*", (route) => {
       const request = route.request();
-      if (
-        request.isNavigationRequest() &&
-        new URL(request.url()).origin !== new URL(this.baseUrl).origin
-      )
-        return route.abort();
+      if (request.isNavigationRequest() && !this.allowedOrigin(request.url())) {
+        const authNavigation =
+          this.options.allowAuthRedirects &&
+          ["http:", "https:"].includes(new URL(request.url()).protocol) &&
+          request.frame().parentFrame() === null;
+        if (!authNavigation) return route.abort();
+      }
       return route.continue();
     });
-    this.page = await this.context.newPage();
-    await this.page.exposeBinding(
+    await this.context.exposeBinding(
       "__looplabPreviewClick",
       ({ frame }, x: number, y: number) => {
         if (
@@ -101,7 +118,7 @@ export class BrowserSession {
           this.previewClick = { x, y, at: Date.now(), url: frame.url() };
       },
     );
-    await this.page.addInitScript(() => {
+    await this.context.addInitScript(() => {
       window.addEventListener(
         "click",
         (event) => {
@@ -117,6 +134,35 @@ export class BrowserSession {
         { capture: true, passive: true },
       );
     });
+    if (this.options.trackPopups) {
+      this.context.on("page", (page) => {
+        this.page = page;
+        page.on("close", () => {
+          if (
+            this.page === page &&
+            this.primaryPage &&
+            !this.primaryPage.isClosed()
+          )
+            this.page = this.primaryPage;
+        });
+        page.on("dialog", (dialog) => {
+          this.dialog = dialog;
+          this.dialogClosed = new Promise<void>((resolve) => {
+            this.resolveDialog = resolve;
+          });
+          void this.requestIntervention(
+            {
+              trigger: "dialog",
+              message: "Jira 页面弹框需要处理",
+              dialog: this.manualDialog(),
+            },
+            dialog,
+          ).catch(() => {});
+        });
+      });
+    }
+    this.page = await this.context.newPage();
+    this.primaryPage = this.page;
     this.signal.addEventListener("abort", this.abort, { once: true });
     if (this.signal.aborted) {
       await this.close();
@@ -131,6 +177,29 @@ export class BrowserSession {
   private abort = () => {
     void this.browser?.close().catch(() => {});
   };
+  private allowedOrigin(url: string) {
+    const origin = new URL(url).origin;
+    return (
+      origin === new URL(this.baseUrl).origin ||
+      this.options.allowedOrigins?.includes(origin)
+    );
+  }
+  returnToMainPage() {
+    if (this.primaryPage && !this.primaryPage.isClosed())
+      this.page = this.primaryPage;
+  }
+  async saveStorageState() {
+    if (!this.options.storageStatePath || !this.context) return;
+    const path = this.options.storageStatePath;
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    await writeFile(
+      temporary,
+      JSON.stringify(await this.context.storageState()),
+      { mode: 0o600 },
+    );
+    await rename(temporary, path);
+  }
   async close() {
     this.signal.removeEventListener("abort", this.abort);
     this.clearWatchers();
@@ -148,9 +217,11 @@ export class BrowserSession {
         24000,
       ),
       elements: await this.page
-        .locator("input,textarea,button,a,select,[data-testid]")
+        .locator(
+          "input,textarea,button,a,select,[id],[data-testid],[contenteditable=true],[role=menuitem]",
+        )
         .evaluateAll((elements) =>
-          elements.slice(0, 70).map((e) => ({
+          elements.slice(0, 100).map((e) => ({
             tag: e.tagName.toLowerCase(),
             id: e.id,
             testId: e.getAttribute("data-testid"),
@@ -163,10 +234,14 @@ export class BrowserSession {
         ),
     };
   }
+  recordAction(kind: PreviewAction["kind"], selector?: string) {
+    this.previewAction = { kind, selector, at: Date.now() };
+  }
   async capture(name: string) {
     // Mask credential fields rather than collecting filled password screenshots.
     const data = await this.page.screenshot({
       fullPage: true,
+      animations: "disabled",
       mask: [this.page.locator("input[type=password]")],
     });
     return this.artifact(name, data);
@@ -291,7 +366,7 @@ export class BrowserSession {
     void handoff.catch(() => {});
     return handoff;
   }
-  private async waitForInterventions() {
+  async waitForInterventions() {
     let waiting: Promise<void>;
     do {
       waiting = this.handoffs;
@@ -469,7 +544,7 @@ export class BrowserSession {
     const resolve = (s: string) => interpolate(s, context);
     if (step.action === "navigate") {
       const url = new URL(resolve(step.url), this.baseUrl);
-      if (url.origin !== new URL(this.baseUrl).origin)
+      if (!this.allowedOrigin(url.href))
         throw new Error(
           "Navigation outside configured environment origin is not allowed",
         );
@@ -555,6 +630,11 @@ export class BrowserSession {
         break;
       case "assertText":
         await expect(locator).toContainText(resolve(step.text), {
+          timeout: step.timeoutMs ?? 20000,
+        });
+        break;
+      case "assertValue":
+        await expect(locator).toHaveValue(resolve(step.value), {
           timeout: step.timeoutMs ?? 20000,
         });
         break;

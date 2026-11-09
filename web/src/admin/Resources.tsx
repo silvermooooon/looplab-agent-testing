@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   App,
@@ -108,6 +108,7 @@ export default function Resources({
   const refresh = async () => {
     await cache.invalidateQueries({ queryKey: ["resources", pid] });
     await cache.invalidateQueries({ queryKey: ["workspace", pid] });
+    await cache.invalidateQueries({ queryKey: ["jira", pid] });
   };
   const perform = async (fn: () => Promise<void>) => {
     setActionBusy(true);
@@ -240,11 +241,25 @@ export default function Resources({
         render: (v: string) => <Typography.Text strong>{v}</Typography.Text>,
       },
       { title: "测试说明", dataIndex: "instructions", ellipsis: true },
+      {
+        title: "版本",
+        dataIndex: "version",
+        render: (version: number) => <Tag>v{version}</Tag>,
+      },
+      {
+        title: "Jira",
+        render: (_: any, row: any) =>
+          row.jira_issue_id && (
+            <Link to={`/projects/${pid}/jira?env=${eid}`}>
+              {row.jira_issue_key || "查看关联需求"}
+            </Link>
+          ),
+      },
       { title: "创建时间", dataIndex: "created_at", render: date },
       {
         title: "操作",
         render: (_: any, r: any) => (
-          <Space>
+          <Space wrap>
             <Button
               type="link"
               onClick={() =>
@@ -252,6 +267,22 @@ export default function Resources({
               }
             >
               查看
+            </Button>
+            <Button
+              type="link"
+              onClick={() =>
+                void perform(async () => {
+                  const versions = await api(
+                    `/projects/${pid}/cases/${r.id}/versions`,
+                  );
+                  setDetail({
+                    title: `${r.title} · 版本历史`,
+                    caseVersions: versions,
+                  });
+                })
+              }
+            >
+              版本历史
             </Button>
             {edit && (
               <Button type="link" onClick={() => open("cases", r)}>
@@ -335,7 +366,26 @@ export default function Resources({
         dataIndex: "name",
         render: (v: string) => <b>{v}</b>,
       },
-      { title: "测试用例", dataIndex: "case_title" },
+      {
+        title: "测试用例",
+        dataIndex: "case_title",
+        render: (title: string, row: any) => (
+          <Space direction="vertical" size={1}>
+            <span>{title}</span>
+            <Tag>
+              {row.case_version
+                ? `依据 v${row.case_version}`
+                : "历史版本未记录"}
+            </Tag>
+            {row.case_version &&
+              row.current_case_version > row.case_version && (
+                <Tag color="warning">
+                  用例已更新至 v{row.current_case_version}，需核对
+                </Tag>
+              )}
+          </Space>
+        ),
+      },
       {
         title: "分类",
         dataIndex: "category",
@@ -639,6 +689,23 @@ export default function Resources({
             <pre className="code-preview">
               {JSON.stringify(v.spec, null, 2)}
             </pre>
+          </div>
+        ))}
+        {detail?.caseVersions?.map((version: any) => (
+          <div key={version.version} style={{ marginBottom: 24 }}>
+            <Space>
+              <Tag>v{version.version}</Tag>
+              <Typography.Text type="secondary">
+                {date(version.created_at)}
+              </Typography.Text>
+            </Space>
+            <Typography.Title level={5}>{version.title}</Typography.Title>
+            <Typography.Paragraph style={{ whiteSpace: "pre-wrap" }}>
+              {version.instructions}
+            </Typography.Paragraph>
+            {version.jira_issue_id && (
+              <Link to={`/projects/${pid}/jira?env=${eid}`}>查看关联 Jira</Link>
+            )}
           </div>
         ))}
       </Drawer>

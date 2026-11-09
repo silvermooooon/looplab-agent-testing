@@ -1,5 +1,6 @@
 import pg from "pg";
 import { config } from "./config.js";
+import { migrateJira } from "./jira-db.js";
 export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
   max: 12,
@@ -154,5 +155,18 @@ export async function migrate() {
       CREATE TABLE run_previews(run_id uuid PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,requested_at timestamptz NOT NULL DEFAULT now(),state text NOT NULL DEFAULT 'waiting',frame_id text,meta jsonb,data bytea);
       INSERT INTO qa.schema_migrations(version) VALUES(8);
     `);
+    const v9 = await c.query(
+      "SELECT 1 FROM qa.schema_migrations WHERE version=9",
+    );
+    if (!v9.rowCount)
+      await c.query(`
+      ALTER TABLE test_cases ADD COLUMN version integer NOT NULL DEFAULT 1;
+      ALTER TABLE test_cases ADD COLUMN jira_issue_id uuid;
+      CREATE TABLE test_case_versions(case_id uuid NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,version integer NOT NULL,title text NOT NULL,instructions text NOT NULL,jira_issue_id uuid,created_by uuid REFERENCES users(id),created_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(case_id,version));
+      INSERT INTO test_case_versions(case_id,version,title,instructions,created_at) SELECT id,version,title,instructions,created_at FROM test_cases;
+      ALTER TABLE flows ADD COLUMN case_version integer;
+      INSERT INTO qa.schema_migrations(version) VALUES(9);
+    `);
+    await migrateJira(c);
   });
 }

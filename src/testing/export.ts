@@ -85,6 +85,7 @@ try {
         case 'click': await locator.click();break;
         case 'press': await locator.press(resolve(step.key));break;
         case 'assertText': await expect(locator).toContainText(resolve(step.text),{timeout:step.timeoutMs??20000});break;
+        case 'assertValue': await expect(locator).toHaveValue(resolve(step.value),{timeout:step.timeoutMs??20000});break;
         case 'assertVisible': await expect(locator).toBeVisible(step.timeoutMs?{timeout:step.timeoutMs}:undefined);break;
         case 'waitFor': await locator.waitFor({state:'visible',timeout:step.timeoutMs});break;
         case 'waitForHidden': await locator.waitFor({state:'hidden',timeout:step.timeoutMs});break;

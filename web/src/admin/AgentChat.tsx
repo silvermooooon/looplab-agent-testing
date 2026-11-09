@@ -81,6 +81,7 @@ const phaseNames: Record<string, string> = {
   testing: "运行测试",
   human: "等待人工处理",
   knowledge: "处理项目知识",
+  jira: "操作 Jira 页面",
 };
 const toolNames: Record<string, string> = {
   browser_inspect: "查看页面元素",
@@ -95,6 +96,21 @@ const toolNames: Record<string, string> = {
   read_knowledge: "读取知识文档",
   save_knowledge: "保存知识文档",
   report_progress: "更新进度",
+  jira_read_issue: "读取 Jira 需求",
+  jira_inspect: "查看 Jira 页面",
+  jira_investigate: "调查 Jira 控件",
+  save_jira_adapter: "保存 Jira 站点脚本",
+  jira_publish_result: "回写 Jira 测试结果",
+  jira_transition: "调整 Jira 状态",
+  list_jira_issues: "查询关联 Jira",
+  list_test_cases: "查询测试用例",
+  read_test_case: "读取测试用例",
+  save_test_case: "保存测试用例",
+  list_flows: "查询测试流程",
+  run_flow: "执行测试流程",
+  list_project_runs: "查询运行记录",
+  read_run: "读取运行结果",
+  save_flow: "保存测试流程",
 };
 function Attachment({ file }: { file: any }) {
   return file.mime_type.startsWith("image/") ? (
@@ -410,6 +426,7 @@ export default function AgentChat({
       void cache.invalidateQueries({ queryKey: ["chat", sid] });
       void refreshList();
       void cache.invalidateQueries({ queryKey: ["resources", pid] });
+      void cache.invalidateQueries({ queryKey: ["jira", pid] });
     });
     return () => {
       disposed = true;
@@ -712,6 +729,11 @@ export default function AgentChat({
         "run_passed",
         "run_failed",
         "conversation_completed",
+        "jira_issue_saved",
+        "jira_published",
+        "jira_transitioned",
+        "case_saved",
+        "flow_execution",
       ].includes(e.kind),
   );
   const statusPanel = (
@@ -807,6 +829,14 @@ export default function AgentChat({
                             run_passed: "测试通过",
                             run_failed: "执行结束",
                             conversation_completed: "回复完成",
+                            jira_issue_saved: "Jira 需求已保存",
+                            jira_published: "Jira 回写已核验",
+                            jira_transitioned: "Jira 状态已核验",
+                            case_saved: "测试用例已保存",
+                            flow_execution:
+                              e.data.status === "running"
+                                ? "正在执行测试流程"
+                                : "测试流程执行结果",
                           } as any
                         )[e.kind]}
               </strong>
@@ -842,6 +872,44 @@ export default function AgentChat({
                     to={`/projects/${pid}/knowledge?env=${eid}&q=${encodeURIComponent(e.data.title)}`}
                   >
                     {e.data.title}
+                  </Link>
+                </p>
+              )}
+              {e.kind === "jira_issue_saved" && (
+                <p>
+                  <Link to={`/projects/${pid}/jira?env=${eid}`}>
+                    {e.data.key} · {e.data.title}
+                  </Link>
+                </p>
+              )}
+              {e.kind === "jira_published" && (
+                <p>
+                  <Link to={`/projects/${pid}/jira?env=${eid}`}>
+                    {e.data.alreadyPublished
+                      ? "已核对已有回写"
+                      : "查看回写记录"}
+                  </Link>
+                </p>
+              )}
+              {e.kind === "jira_transitioned" && (
+                <p>当前状态 · {e.data.status}</p>
+              )}
+              {e.kind === "case_saved" && (
+                <p>
+                  <Link
+                    to={`/projects/${pid}/cases?env=${eid}&q=${encodeURIComponent(e.data.title)}`}
+                  >
+                    {e.data.title} · v{e.data.version}
+                  </Link>
+                </p>
+              )}
+              {e.kind === "flow_execution" && (
+                <p>
+                  <Status value={e.data.status} />
+                  <Link
+                    to={`/projects/${pid}/runs?env=${eid}&run=${e.data.runId}`}
+                  >
+                    查看执行记录
                   </Link>
                 </p>
               )}

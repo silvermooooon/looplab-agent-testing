@@ -10,6 +10,7 @@ import {
 import { validateAttachment } from "./chat-files.js";
 import { cancelRun, wakeWorker } from "./worker.js";
 import { tokenHash } from "./security.js";
+import { localExecutorId } from "./executor.js";
 const uuid = z.string().uuid();
 const uid = (r: FastifyRequest) => {
   if (!r.currentUser) throw new HttpError(401, "请先登录");
@@ -351,7 +352,7 @@ export async function chatRoutes(app: FastifyInstance) {
         throw new HttpError(400, "单条消息附件合计不能超过 12 MB");
       const run = (
         await c.query(
-          `INSERT INTO runs(project_id,environment_id,case_id,mode,repair_node_id,requested_by,conversation_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING ${runColumns}`,
+          `INSERT INTO runs(project_id,environment_id,case_id,mode,repair_node_id,requested_by,conversation_id,executor_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING ${runColumns}`,
           [
             s.project_id,
             s.environment_id,
@@ -360,6 +361,7 @@ export async function chatRoutes(app: FastifyInstance) {
             s.repair_node_id,
             uid(r),
             s.id,
+            localExecutorId,
           ],
         )
       ).rows[0];

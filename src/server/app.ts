@@ -12,6 +12,7 @@ import { routes } from "./routes.js";
 import { suiteRoutes } from "./suites.js";
 import { testFileRoutes } from "./test-files.js";
 import { previewRoutes } from "./preview.js";
+import { jiraRoutes } from "./jira.js";
 
 export async function buildApp() {
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
@@ -40,6 +41,7 @@ export async function buildApp() {
   });
   await routes(app);
   previewRoutes(app);
+  jiraRoutes(app);
   await management(app);
   await chatRoutes(app);
   await suiteRoutes(app);

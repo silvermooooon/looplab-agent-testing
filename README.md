@@ -15,6 +15,8 @@
 - 项目级测试文件库：任意文件上传、查找、下载与归档；文件在项目成员和各环境之间共享，归档不影响旧流程。
 - 独立环境管理页；地址、变量与凭据键值表单；环境复制、归档和恢复；复制时同步复制节点版本和流程。
 - 自然语言用例 → 真实浏览器探索 → 生成参数化节点 → 组合流程 → 全新浏览器回放。
+- Jira 网页集成：在聊天中分别读取需求、保存用例、编排脚本、运行、回写结果和调整状态；登录时在同一浏览器人工接管，不需要 Jira API 凭据。
+- 用例版本历史与 Jira 关联；流程固定用例版本，人工修改后提示核对；运行快照保留当时的需求与关联。
 - 按项目共享节点；环境独立版本；流程固定引用版本；相同 spec 复用已有版本。
 - 无需模型的确定性流程回放；导出独立 TypeScript/Playwright 脚本。
 - 流程分类与测试组：将健康检查、全量检查、功能检查、回归检查和一次性检查组合为环境内可复用的有序测试组。
@@ -26,6 +28,8 @@
 - 默认 `gpt-6-luna`，使用 OpenAI Responses API，支持流式响应、函数调用和 reasoning item 回传。
 
 聊天功能与验收见 [Agent 对话入口](docs/agent-chat.md)。管理选型、性能测量和边界见 [管理 UI 审阅](docs/ui-review.md)。
+
+Jira 阶段工具、登录方式、站点脚本和场内适配边界见 [Jira 浏览器交接](docs/jira-browser-handoff.md)。
 
 可以将独立运行的 LoopLab 实例作为被测项目，由平台自身生成和重放测试。配置与验证方法见 [自举测试](docs/self-testing.md)。
 
@@ -94,9 +98,11 @@ npm run dev:web
 
 ## 团队共享
 
-推荐团队共用一个 Node.js 服务地址和 PostgreSQL 数据库。其他成员先注册账户，由项目所有者在“项目成员”中按邮箱添加。成员看到的是相同的知识、测试文件、节点、流程、截图和报告。
+团队共用 PostgreSQL 数据库；其他成员先注册账户，由项目所有者在“项目成员”中按邮箱添加。成员看到的是相同的知识、测试文件、Jira 需求、用例、节点、流程、截图和报告。需要访问各自内网并在本机接管 Jira 时，各成员运行自己的 Node.js 服务。
 
-也支持多个 Node.js 实例连接同一远程 PostgreSQL：使用相同的 `DATABASE_URL` 和 `APP_SECRET`，并确保所有执行器都能访问被测环境 URL。共享队列通过数据库行锁领取任务，避免两个执行器领取同一个任务。多台机器不要把各自含义不同的 `localhost` 当作同一个被测环境。
+多个 Node.js 实例连接同一远程 PostgreSQL 时使用相同的 `DATABASE_URL` 和 `APP_SECRET`。聊天任务固定到接收请求的本机执行器，聊天中的独立流程运行也在该执行器完成。普通“直接回放”和测试组仍使用共享队列，所有可能领取它们的执行器都应能访问被测环境 URL。数据库行锁避免同一个任务被重复领取；多台机器不要把各自含义不同的 `localhost` 当作同一个被测环境。
+
+Jira 登录状态保存在本机 `.data/jira-sessions/`，按用户、项目、站点隔离，不同步到数据库。也可由团队共用一个 Node.js 服务，但浏览器实际运行在服务所在机器，内网访问和登录现场随该机器，而非访问页面的客户端电脑。
 
 远程服务可设置 `HOST=0.0.0.0`，由反向代理提供 HTTPS，并设置 `COOKIE_SECURE=true`。数据库角色需要在专用数据库中创建和维护 `qa` schema 的权限。
 
@@ -111,10 +117,11 @@ npm run dev:web
 7. 页面更新造成节点失效时，在节点库选择“Agent 修复”，进入聊天补充要求。修复仅影响当前环境的新版本。
 8. 通过“复制环境”复用资产，再单独调整新环境配置与节点实现。
 9. 在“测试组”中按当前环境选择流程并调整顺序；运行后查看整组结果，再进入单项报告检查失败原因。
+10. 在“Jira 需求”粘贴 Ticket 链接并进入对话。可只生成用例，手动编辑后再编排、运行；也可新开对话单独回写已完成运行或调整状态。站点选择器和登录 origin 在“站点脚本”中管理。
 
 健康检查适合验证服务和关键入口是否可用，功能检查针对具体能力，回归检查用于功能变更后的整体验收，一次性检查用于临时调查。全量检查通常是覆盖多个类别的测试组：同一流程可以加入多个组，无需重复生成。组内流程各自使用新的浏览器，顺序只保证先后执行，不共享浏览器登录状态。
 
-节点可使用 `navigate`、`reload`、`fill`、`click`、`press`、`waitFor`、`assertText`、`assertVisible`、`extractText` 和 `screenshot`。等待和断言可配置 1–180 秒的超时。
+节点可使用 `navigate`、`reload`、`fill`、`click`、`press`、`waitFor`、`assertText`、`assertValue`、`assertVisible`、`extractText` 和 `screenshot`。`assertText` 检查元素文本；检查 input、textarea 或 select 的当前值时使用 `assertValue {selector,value,timeoutMs?}`，按完整值匹配，也支持空字符串和变量。等待和断言可配置 1–180 秒的超时，文本与表单值断言默认等待 20 秒。
 
 测试文件库中的文件单个最大 10 MiB，项目内跨环境共享。文件上传后内容不可变，重新上传得到新的文件 ID；归档文件仍能被原有流程和对话引用。`uploadFile` 节点可将任意库文件原样上传到被测网页，`readFile` 可将 UTF-8 文本读入输出变量供后续步骤使用。节点可通过 `{{param.fileId}}` 接收文件 ID，组合同一节点和不同文件；流程参数也可绑定 `{{output.变量名}}`，把上一步输出传给后续节点。Agent 可读取文本，在对话中选择的 PNG、JPEG、WebP 和 PDF 可直接作为模型输入；其他二进制文件可用于网页上传。每条对话中库文件和普通附件合计最多 5 个、12 MiB。
 
@@ -142,6 +149,7 @@ npm run verify:self         # 独立 LoopLab 实例的真实自举测试
 npm run verify:self-chat    # 在自举项目中验证真实 AI 对话、上下文与刷新
 npm run verify:self-knowledge # 知识默认加载、检索、对话保存与复用
 npm run verify:self-preview   # 即时发送反馈、Agent 和流程的实时画面
+npm run verify:self-jira      # 本地模拟 Jira 的分阶段浏览器验收
 npx tsx scripts/verify-self-suites.ts        # 测试组管理、顺序与汇总
 npx tsx scripts/verify-self-suites-cancel.ts # 整组取消与未执行项目
 npx tsx scripts/verify-self-intervention.ts  # 监听、人工接管与继续
@@ -162,13 +170,14 @@ GitHub Actions 构建配置保留在 `docs/ci-workflow.template.yml`。该模板
 src/runtime/        从 pi 移植并维护的 Agent loop、工具管线、消息队列
 src/openai/         Responses 流适配，默认 GPT 6 Luna
 src/testing/        节点 schema、Playwright 执行器、TS 导出
+src/integrations/   Jira 网页阶段脚本与站点适配 schema
 src/server/         API、身份与权限、数据库迁移、共享任务执行器
 web/                React 管理工作台与演示目标
 scripts/            初始化、迁移、真实模型和端到端验收
 test/              离线行为测试
 ```
 
-第一版支持顺序流程与单 origin 的常规网页操作。验证码/MFA/跨域 SSO、视觉坐标操作、任意代码节点、分支循环、向量检索和浏览器进程恢复尚未实现。节点更新不会自动改写旧流程；需要重新编排、编辑流程副本或通过修复任务生成新流程。
+普通测试流程支持顺序执行与单 origin 网页操作。Jira 会话可配置登录 origin，并在出现登录时人工接管；真实内网 SSO、富文本控件和状态流转仍需场内适配。当前不自动上传 Jira 附件，也不提供任意代码节点、分支循环、向量检索或浏览器进程恢复。节点更新不会自动改写旧流程；需要重新编排、编辑流程副本或通过修复任务生成新流程。
 
 完整实现边界与数据设计见 [架构说明](docs/architecture.md)。pi 基准提交、移植映射与本地差异见 [第三方声明](THIRD_PARTY_NOTICES.md)；原 MIT 许可保存在 [licenses/pi-MIT.txt](licenses/pi-MIT.txt)。
 

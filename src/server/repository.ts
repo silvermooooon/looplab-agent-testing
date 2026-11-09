@@ -169,21 +169,27 @@ export async function saveFlow(
   name: string,
   steps: FlowStep[],
   category = "feature",
+  expectedCaseVersion?: number,
 ) {
   await activeEnvironment(projectId, envId);
   await resolveSteps(projectId, envId, steps);
-  if (
-    !(await one("SELECT id FROM test_cases WHERE id=$1 AND project_id=$2", [
-      caseId,
-      projectId,
-    ]))
-  )
-    throw new HttpError(404, "测试用例不存在");
   return transaction(async (c) => {
     await lockActiveScope(c, projectId, envId);
+    const testCase = (
+      await c.query(
+        "SELECT version FROM test_cases WHERE id=$1 AND project_id=$2 FOR SHARE",
+        [caseId, projectId],
+      )
+    ).rows[0];
+    if (!testCase) throw new HttpError(404, "测试用例不存在");
+    if (
+      expectedCaseVersion !== undefined &&
+      testCase.version !== expectedCaseVersion
+    )
+      throw new HttpError(409, "测试用例已更新，请核对最新版本后再保存流程");
     return (
       await c.query(
-        "INSERT INTO flows(project_id,environment_id,case_id,name,steps,created_by,category) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+        "INSERT INTO flows(project_id,environment_id,case_id,name,steps,created_by,category,case_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
         [
           projectId,
           envId,
@@ -192,6 +198,7 @@ export async function saveFlow(
           JSON.stringify(steps),
           userId,
           category,
+          testCase.version,
         ],
       )
     ).rows[0];

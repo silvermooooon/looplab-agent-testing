@@ -26,6 +26,12 @@ import { exportScript } from "../testing/export.js";
 import { cancelRun } from "./worker.js";
 import { interventionRoutes } from "./intervention.js";
 import { knowledgeInput, saveKnowledge } from "./knowledge.js";
+import {
+  caseInput,
+  readTestCase,
+  readTestCaseVersions,
+  saveTestCase,
+} from "./cases.js";
 
 const id = z.string().uuid();
 const name = z.string().trim().min(1).max(120);
@@ -377,7 +383,7 @@ export async function routes(app: FastifyInstance) {
           .parse(flow.steps)
           .map((s) => ({ ...s, revisionId: mapping.get(s.revisionId)! }));
         const copiedFlow = await c.query(
-          "INSERT INTO flows(project_id,environment_id,case_id,name,steps,created_by,category) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+          "INSERT INTO flows(project_id,environment_id,case_id,name,steps,created_by,category,case_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",
           [
             pid,
             env.id,
@@ -386,6 +392,7 @@ export async function routes(app: FastifyInstance) {
             JSON.stringify(steps),
             uid(r),
             flow.category,
+            flow.case_version,
           ],
         );
         flowMapping.set(flow.id, copiedFlow.rows[0].id);
@@ -437,25 +444,30 @@ export async function routes(app: FastifyInstance) {
   });
   app.post("/api/projects/:pid/cases", async (r) => {
     const pid = path(r, "pid");
-    await requireMember(pid, uid(r), true);
-    const b = z
-      .object({ title: name, instructions: z.string().min(1).max(20000) })
-      .parse(r.body);
-    return one(
-      "INSERT INTO test_cases(project_id,title,instructions) VALUES($1,$2,$3) RETURNING *",
-      [pid, b.title, b.instructions],
-    );
+    return saveTestCase(pid, uid(r), caseInput.parse(r.body));
   });
   app.put("/api/projects/:pid/cases/:cid", async (r) => {
     const pid = path(r, "pid");
-    await requireMember(pid, uid(r), true);
-    const b = z
-      .object({ title: name, instructions: z.string().min(1).max(20000) })
-      .parse(r.body);
-    return one(
-      "UPDATE test_cases SET title=$1,instructions=$2 WHERE id=$3 AND project_id=$4 RETURNING *",
-      [b.title, b.instructions, path(r, "cid"), pid],
-    );
+    return saveTestCase(pid, uid(r), {
+      ...caseInput.parse(r.body),
+      id: path(r, "cid"),
+    });
+  });
+  app.get("/api/projects/:pid/cases/:cid", async (r) => {
+    const pid = path(r, "pid");
+    await requireMember(pid, uid(r));
+    const version = z.coerce
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .parse((r.query as any).version);
+    return readTestCase(pid, path(r, "cid"), version);
+  });
+  app.get("/api/projects/:pid/cases/:cid/versions", async (r) => {
+    const pid = path(r, "pid");
+    await requireMember(pid, uid(r));
+    return readTestCaseVersions(pid, path(r, "cid"));
   });
   app.post("/api/projects/:pid/nodes", async (r) => {
     const pid = path(r, "pid");
@@ -491,6 +503,7 @@ export async function routes(app: FastifyInstance) {
         category: z
           .enum(["health", "full", "feature", "one_off", "regression"])
           .default("feature"),
+        expectedCaseVersion: z.number().int().positive().optional(),
       })
       .parse(r.body);
     return saveFlow(
@@ -501,6 +514,7 @@ export async function routes(app: FastifyInstance) {
       b.name,
       b.steps,
       b.category,
+      b.expectedCaseVersion,
     );
   });
   app.get("/api/projects/:pid/flows/:fid/export", async (r, reply) => {

@@ -4,7 +4,7 @@ import { MonitorPlay } from "lucide-react";
 import "./browser-preview.css";
 
 type PreviewMeta = {
-  phase: "investigation" | "replay";
+  phase: "investigation" | "replay" | "jira";
   path: string;
   width: number;
   height: number;
@@ -25,6 +25,7 @@ const actions: Record<string, string> = {
   uploadFile: "上传文件",
   readFile: "读取文件",
   assertText: "验证文本",
+  assertValue: "验证表单值",
   assertVisible: "验证元素可见",
   waitFor: "等待元素出现",
   waitForHidden: "等待元素隐藏",
@@ -152,7 +153,11 @@ function PreviewViewport({
           </Tag>
           {meta && (
             <span>
-              {meta.phase === "investigation" ? "Agent 调查" : "独立重放"}
+              {meta.phase === "jira"
+                ? "Jira 操作"
+                : meta.phase === "investigation"
+                  ? "Agent 调查"
+                  : "独立重放"}
             </span>
           )}
         </div>

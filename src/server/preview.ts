@@ -9,7 +9,7 @@ import { redact } from "./security.js";
 export function startRunPreview(
   runId: string,
   browser: BrowserSession,
-  phase: "investigation" | "replay",
+  phase: "investigation" | "replay" | "jira",
   secrets: Record<string, string>,
 ) {
   let stopped = false;

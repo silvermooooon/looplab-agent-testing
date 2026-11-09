@@ -77,10 +77,16 @@ export default function RunDetail({
     knowledge_saved: "保存知识文档",
     intervention: "人工接管状态",
     intervention_action: "人工操作",
+    jira_issue_saved: "保存 Jira 需求",
+    jira_published: "Jira 回写已核验",
+    jira_transitioned: "Jira 状态已核验",
+    case_saved: "保存测试用例",
+    flow_execution: "测试流程执行结果",
   };
   useEffect(() => {
     if (status && !["queued", "running"].includes(status)) {
       void cache.invalidateQueries({ queryKey: ["resources", pid] });
+      void cache.invalidateQueries({ queryKey: ["jira", pid] });
     }
   }, [status, cache, pid]);
   if (run.error)

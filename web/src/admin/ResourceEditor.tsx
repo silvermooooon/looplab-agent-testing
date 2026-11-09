@@ -143,8 +143,8 @@ function RemoteSelect({
       placeholder={placeholder}
       value={value}
       options={opts}
-      onChange={(v) => {
-        onChange?.(v);
+      onChange={onChange}
+      onSelect={(v) => {
         onItem?.(
           rows.find(
             (x: any) => (resource === "nodes" ? x.revision_id : x.id) === v,
@@ -173,6 +173,7 @@ export default function ResourceEditor({
   const { kind, item } = editor;
   const [form] = Form.useForm();
   const [catalog, setCatalog] = useState<Record<string, any>>({});
+  const jira = useApi(["jira", pid], `/projects/${pid}/jira`, kind === "cases");
   const initial = {
     ...item,
     baseUrl: item?.base_url,
@@ -187,6 +188,8 @@ export default function ResourceEditor({
     removeSecrets: [],
     copySecrets: false,
     caseId: item?.case_id,
+    expectedCaseVersion: item?.case_version ?? undefined,
+    jiraIssueId: item?.jira_issue_id || undefined,
     category: item?.category || "feature",
     role: item?.role || "editor",
     steps: item?.steps || [],
@@ -243,7 +246,12 @@ export default function ResourceEditor({
           `/projects/${pid}/${kind}${item ? "/" + item.id : ""}`,
           item ? "PUT" : "POST",
           kind === "cases"
-            ? { title: v.title, instructions: v.instructions }
+            ? {
+                title: v.title,
+                instructions: v.instructions,
+                jiraIssueId: v.jiraIssueId || null,
+                ...(item ? { expectedVersion: item.version } : {}),
+              }
             : { title: v.title, content: v.content },
         );
       if (kind === "nodes")
@@ -258,6 +266,7 @@ export default function ResourceEditor({
         return api(`/projects/${pid}/flows`, "POST", {
           environmentId: eid,
           caseId: v.caseId,
+          expectedCaseVersion: v.expectedCaseVersion,
           category: v.category,
           name: v.name,
           steps: (v.steps || []).map((s: any) => ({
@@ -377,16 +386,45 @@ export default function ResourceEditor({
           </Form.Item>
         )}
         {kind === "cases" && (
-          <Form.Item
-            label="测试步骤和预期结果"
-            name="instructions"
-            rules={[...required, { max: 20000 }]}
-          >
-            <Input.TextArea
-              rows={8}
-              placeholder="例如：登录对话平台，发送一条消息，确认回复可见且无错误。"
-            />
-          </Form.Item>
+          <>
+            {item && (
+              <Typography.Paragraph type="secondary">
+                当前版本 v{item.version}，修改将保留版本历史。
+              </Typography.Paragraph>
+            )}
+            <Form.Item label="关联 Jira 需求" name="jiraIssueId">
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="可选，先在 Jira 需求中读取 Ticket"
+                loading={jira.isFetching}
+                options={[
+                  ...(item?.jira_issue_id &&
+                  !jira.data?.issues.some(
+                    (issue: any) => issue.id === item.jira_issue_id,
+                  )
+                    ? [{ value: item.jira_issue_id, label: item.jira_issue_id }]
+                    : []),
+                  ...(jira.data?.issues || []).map((issue: any) => ({
+                    value: issue.id,
+                    label: `${issue.issue_key} · ${issue.title}`,
+                  })),
+                ]}
+              />
+            </Form.Item>
+            <Failure error={jira.error} retry={() => void jira.refetch()} />
+            <Form.Item
+              label="测试步骤和预期结果"
+              name="instructions"
+              rules={[...required, { max: 20000 }]}
+            >
+              <Input.TextArea
+                rows={8}
+                placeholder="例如：登录对话平台，发送一条消息，确认回复可见且无错误。"
+              />
+            </Form.Item>
+          </>
         )}
         {kind === "knowledge" && (
           <>
@@ -465,6 +503,17 @@ export default function ResourceEditor({
           </Form.Item>
         )}
         {kind === "flows" && (
+          <Form.Item
+            name="expectedCaseVersion"
+            hidden
+            rules={[
+              { required: true, message: "请先选择并审阅当前测试用例版本" },
+            ]}
+          >
+            <Input />
+          </Form.Item>
+        )}
+        {kind === "flows" && (
           <Form.Item name="caseId" label="测试用例" rules={required}>
             <RemoteSelect
               pid={pid}
@@ -472,12 +521,21 @@ export default function ResourceEditor({
               resource="cases"
               placeholder="搜索并选择测试用例"
               selectedLabel={item?.case_title}
+              onItem={(testCase) =>
+                form.setFieldValue("expectedCaseVersion", testCase?.version)
+              }
             />
           </Form.Item>
         )}
 
         {kind === "flows" && (
           <>
+            {item && item.case_version == null && (
+              <Alert
+                type="warning"
+                title="此历史流程未记录用例版本，请审阅当前用例并重新选择后保存。"
+              />
+            )}
             <Alert
               type="info"
               title="保存为独立流程，节点版本与参数固定。编辑副本不会改变已保存的流程。"

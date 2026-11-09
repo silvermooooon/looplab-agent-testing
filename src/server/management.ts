@@ -120,7 +120,7 @@ export async function management(app: FastifyInstance) {
         sql = `SELECT * FROM environments WHERE project_id=$1 AND (name ILIKE $2 OR base_url ILIKE $2) AND (archived_at IS NOT NULL)=$3 ORDER BY created_at DESC,id`;
         break;
       case "cases":
-        sql = `SELECT * FROM test_cases WHERE project_id=$1 AND NOT is_draft AND (title ILIKE $2 OR instructions ILIKE $2) ORDER BY created_at DESC,id`;
+        sql = `SELECT c.*,i.issue_key jira_issue_key,i.title jira_issue_title FROM test_cases c LEFT JOIN jira_issues i ON i.id=c.jira_issue_id WHERE c.project_id=$1 AND NOT c.is_draft AND (c.title ILIKE $2 OR c.instructions ILIKE $2) ORDER BY c.created_at DESC,c.id`;
         break;
       case "knowledge":
         sql = `SELECT * FROM knowledge WHERE project_id=$1 AND (title ILIKE $2 OR content ILIKE $2) ORDER BY updated_at DESC,id`;
@@ -134,11 +134,11 @@ export async function management(app: FastifyInstance) {
         break;
       case "flows":
         args.push(p.environmentId ?? null, p.category || null);
-        sql = `SELECT f.*,c.title case_title FROM flows f JOIN test_cases c ON c.id=f.case_id WHERE f.project_id=$1 AND (f.name ILIKE $2 OR c.title ILIKE $2) AND f.environment_id=$3 AND ($4::text IS NULL OR f.category=$4) ORDER BY f.created_at DESC,f.id`;
+        sql = `SELECT f.*,c.title case_title,c.version current_case_version FROM flows f JOIN test_cases c ON c.id=f.case_id WHERE f.project_id=$1 AND (f.name ILIKE $2 OR c.title ILIKE $2) AND f.environment_id=$3 AND ($4::text IS NULL OR f.category=$4) ORDER BY f.created_at DESC,f.id`;
         break;
       case "runs":
         args.push(p.environmentId ?? null);
-        sql = `SELECT r.id,r.environment_id,r.case_id,r.flow_id,r.mode,r.status,r.summary,r.error,r.created_at,r.started_at,r.finished_at,c.title case_title FROM runs r JOIN test_cases c ON c.id=r.case_id WHERE r.project_id=$1 AND (c.title ILIKE $2 OR r.summary ILIKE $2 OR r.id::text ILIKE $2) AND r.environment_id=$3 ORDER BY r.created_at DESC,r.id`;
+        sql = `SELECT r.id,r.environment_id,r.case_id,r.flow_id,r.mode,r.status,r.summary,r.error,r.created_at,r.started_at,r.finished_at,r.events_complete,r.snapshot->'testCase'->>'jira_issue_id' jira_issue_id,c.title case_title FROM runs r JOIN test_cases c ON c.id=r.case_id WHERE r.project_id=$1 AND (c.title ILIKE $2 OR r.summary ILIKE $2 OR r.id::text ILIKE $2) AND r.environment_id=$3 ORDER BY r.created_at DESC,r.id`;
         break;
       default:
         throw new HttpError(404, "资源不存在");

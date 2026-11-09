@@ -26,6 +26,14 @@ export const stepSchema = z.discriminatedUnion("action", [
     .object({ action: z.literal("assertText"), selector, text: str, timeoutMs })
     .strict(),
   z
+    .object({
+      action: z.literal("assertValue"),
+      selector,
+      value: z.string().max(10000),
+      timeoutMs,
+    })
+    .strict(),
+  z
     .object({ action: z.literal("assertVisible"), selector, timeoutMs })
     .strict(),
   z.object({ action: z.literal("waitFor"), selector, timeoutMs }).strict(),
@@ -127,6 +135,7 @@ export const stepJson = {
         "uploadFile",
         "readFile",
         "assertText",
+        "assertValue",
         "assertVisible",
         "waitFor",
         "waitForResponse",

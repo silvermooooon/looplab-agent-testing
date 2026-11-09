@@ -36,6 +36,7 @@ import {
   History,
   Layers,
   ListChecks,
+  Ticket,
   LogOut,
   MessageSquare,
   Users,
@@ -50,10 +51,12 @@ const RunDetail = lazy(() => import("./admin/RunDetail"));
 const TestSuites = lazy(() => import("./admin/TestSuites"));
 const SuiteRunDetail = lazy(() => import("./admin/SuiteRunDetail"));
 const FileLibrary = lazy(() => import("./admin/FileLibrary"));
+const Jira = lazy(() => import("./admin/Jira"));
 export const sections = [
   ["agent", "Agent 对话", MessageSquare],
   ["environments", "环境管理", Layers],
   ["cases", "测试用例", FlaskConical],
+  ["jira", "Jira 需求", Ticket],
   ["nodes", "共享节点", Blocks],
   ["flows", "测试流程", Workflow],
   ["suites", "测试组", ListChecks],
@@ -430,6 +433,8 @@ function Shell({ user, model }: { user: any; model: string }) {
                     eid={selected}
                     workspace={data}
                   />
+                ) : section === "jira" ? (
+                  <Jira key={pid} pid={pid} eid={selected} workspace={data} />
                 ) : section === "agent" ? (
                   <AgentChat
                     key={pid + "/" + selected}
