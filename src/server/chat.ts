@@ -8,7 +8,7 @@ import {
   lockActiveScope,
 } from "./repository.js";
 import { validateAttachment } from "./chat-files.js";
-import { cancelRun } from "./worker.js";
+import { cancelRun, wakeWorker } from "./worker.js";
 import { tokenHash } from "./security.js";
 const uuid = z.string().uuid();
 const uid = (r: FastifyRequest) => {
@@ -300,7 +300,7 @@ export async function chatRoutes(app: FastifyInstance) {
         "每条消息最多添加 5 个附件或测试文件",
       )
       .parse(r.body);
-    return transaction(async (c) => {
+    const result = await transaction(async (c) => {
       await lockActiveScope(c, s.project_id, s.environment_id);
       const locked = (
         await c.query(
@@ -351,7 +351,7 @@ export async function chatRoutes(app: FastifyInstance) {
         throw new HttpError(400, "单条消息附件合计不能超过 12 MB");
       const run = (
         await c.query(
-          "INSERT INTO runs(project_id,environment_id,case_id,mode,repair_node_id,requested_by,conversation_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+          `INSERT INTO runs(project_id,environment_id,case_id,mode,repair_node_id,requested_by,conversation_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING ${runColumns}`,
           [
             s.project_id,
             s.environment_id,
@@ -365,7 +365,7 @@ export async function chatRoutes(app: FastifyInstance) {
       ).rows[0];
       const user = (
         await c.query(
-          "INSERT INTO chat_messages(conversation_id,role,content,run_id,author_id,client_id) VALUES($1,'user',$2,$3,$4,$5) RETURNING id",
+          "INSERT INTO chat_messages(conversation_id,role,content,run_id,author_id,client_id) VALUES($1,'user',$2,$3,$4,$5) RETURNING *",
           [s.id, b.text, run.id, uid(r), b.clientId],
         )
       ).rows[0];
@@ -378,22 +378,33 @@ export async function chatRoutes(app: FastifyInstance) {
          SELECT $1, id, position::int FROM unnest($2::uuid[]) WITH ORDINALITY files(id,position)`,
         [user.id, b.testFileIds],
       );
-      await c.query(
-        "INSERT INTO chat_messages(conversation_id,role,run_id) VALUES($1,'assistant',$2)",
-        [s.id, run.id],
-      );
-      await c.query(
-        "UPDATE chat_sessions SET updated_at=now(),title=CASE WHEN title='新对话' THEN $2 ELSE title END WHERE id=$1",
-        [
-          s.id,
-          (b.text || files.length + libraryFiles.length + " 个附件").slice(
-            0,
-            60,
-          ),
-        ],
-      );
-      return { runId: run.id };
+      const assistant = (
+        await c.query(
+          "INSERT INTO chat_messages(conversation_id,role,run_id) VALUES($1,'assistant',$2) RETURNING *",
+          [s.id, run.id],
+        )
+      ).rows[0];
+      const session = (
+        await c.query(
+          "UPDATE chat_sessions SET updated_at=now(),title=CASE WHEN title='新对话' THEN $2 ELSE title END WHERE id=$1 RETURNING title,updated_at",
+          [
+            s.id,
+            (b.text || files.length + libraryFiles.length + " 个附件").slice(
+              0,
+              60,
+            ),
+          ],
+        )
+      ).rows[0];
+      return {
+        runId: run.id,
+        run,
+        messages: [{ ...user, author_name: r.currentUser!.name }, assistant],
+        session,
+      };
     });
+    if (!result.reused) wakeWorker();
+    return result;
   });
   app.post("/api/chat/sessions/:sid/runs/:rid/cancel", async (r) => {
     const s = await session(r, true);

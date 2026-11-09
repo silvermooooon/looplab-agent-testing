@@ -9,7 +9,7 @@
 ## 已实现
 
 - 邮箱/密码登录；项目目录、创建、编辑、归档与恢复；owner/editor/viewer 项目权限。
-- 独立 Agent 对话页：多轮讨论、文件/图片/PDF 输入、Responses 流式回复、实时执行动态、会话归档与团队共享。
+- 独立 Agent 对话页：多轮讨论、文件/图片/PDF 输入、即时发送反馈、Responses 流式回复、实时浏览器与执行动态、会话归档与团队共享。
 - Ant Design X 聊天组件与 Ant Design 管理界面、TanStack Query 缓存、React Router 深链接；列表按需分页与搜索。
 - 项目独立知识库，支持文本与 Markdown 导入、编辑。Agent 自动加载近期文档、按需查阅全文，并可根据聊天指令将验证经验保存为项目知识。
 - 项目级测试文件库：任意文件上传、查找、下载与归档；文件在项目成员和各环境之间共享，归档不影响旧流程。
@@ -107,7 +107,7 @@ npm run dev:web
 3. 在“测试文件库”上传需要复用的输入文件。打开“Agent 对话”描述目标，可选择库文件，也可临时上传附件或先讨论需求。
 4. 已有用例点击“与 Agent 生成”进入同一聊天页面。Agent 调查页面并查询共享节点，缺少的能力才新建。
 5. 在运行详情查看实际步骤、断言和截图。通过由独立回放结果决定。
-6. 在对话中点击“沉淀到知识库”或直接要求 Agent 保存验证经验，供同项目的其他会话和环境使用。后续使用“直接回放”，无需再次调用模型或生成节点。
+6. 在对话中说“把这个发现记下来”，Agent 会整理并保存相关经验，供同项目的其他会话和环境使用。后续使用“直接回放”，无需再次调用模型或生成节点。
 7. 页面更新造成节点失效时，在节点库选择“Agent 修复”，进入聊天补充要求。修复仅影响当前环境的新版本。
 8. 通过“复制环境”复用资产，再单独调整新环境配置与节点实现。
 9. 在“测试组”中按当前环境选择流程并调整顺序；运行后查看整组结果，再进入单项报告检查失败原因。
@@ -141,6 +141,7 @@ npm run build              # 后端、前端严格 TS 检查与生产构建
 npm run verify:self         # 独立 LoopLab 实例的真实自举测试
 npm run verify:self-chat    # 在自举项目中验证真实 AI 对话、上下文与刷新
 npm run verify:self-knowledge # 知识默认加载、检索、对话保存与复用
+npm run verify:self-preview   # 即时发送反馈、Agent 和流程的实时画面
 npx tsx scripts/verify-self-suites.ts        # 测试组管理、顺序与汇总
 npx tsx scripts/verify-self-suites-cancel.ts # 整组取消与未执行项目
 npx tsx scripts/verify-self-intervention.ts  # 监听、人工接管与继续

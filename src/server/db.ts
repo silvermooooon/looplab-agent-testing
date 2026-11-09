@@ -146,5 +146,13 @@ export async function migrate() {
       CREATE TABLE chat_message_test_files(message_id uuid NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,file_id uuid NOT NULL REFERENCES test_files(id),position integer NOT NULL,PRIMARY KEY(message_id,file_id),UNIQUE(message_id,position));
       INSERT INTO qa.schema_migrations(version) VALUES(7);
     `);
+    const v8 = await c.query(
+      "SELECT 1 FROM qa.schema_migrations WHERE version=8",
+    );
+    if (!v8.rowCount)
+      await c.query(`
+      CREATE TABLE run_previews(run_id uuid PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,requested_at timestamptz NOT NULL DEFAULT now(),state text NOT NULL DEFAULT 'waiting',frame_id text,meta jsonb,data bytea);
+      INSERT INTO qa.schema_migrations(version) VALUES(8);
+    `);
   });
 }

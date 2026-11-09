@@ -75,7 +75,15 @@ npx tsx scripts/verify-self-files.ts
 npm run verify:self-knowledge
 ```
 
-脚本在独立目标实例中创建知识文档与新会话，通过真实模型验证默认加载、按需查找和分页阅读、从聊天新建和更新 Markdown 文档、跨环境复用和跨项目隔离。浏览器流程通过保存事件打开知识库核对正文。结果保存在 `.data/self-test-knowledge-result.json`。
+脚本在独立目标实例中创建知识文档与新会话，通过真实模型验证默认加载、按需查找和分页阅读、从聊天新建和更新 Markdown 文档、跨环境复用和跨项目隔离。浏览器发送“这东西需要被记住”，再通过保存事件打开知识库核对正文。结果保存在 `.data/self-test-knowledge-result.json`。
+
+验证即时发送反馈和实时浏览器：
+
+```bash
+npm run verify:self-preview
+```
+
+脚本在独立目标实例延迟真实发送请求的响应，检查等待期间用户消息已经可见，然后观察 Agent 与独立重放的真实浏览器点击。关闭面板后检查画面请求已停止，并验证跨项目无法访问画面。结果保存在 `.data/self-test-preview-result.json`。
 
 ## 基础自举流程说明
 

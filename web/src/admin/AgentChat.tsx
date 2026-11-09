@@ -1,4 +1,4 @@
-import { type ComponentRef, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bubble, Conversations, Sender } from "@ant-design/x";
@@ -22,7 +22,6 @@ import {
   Upload,
 } from "antd";
 import {
-  BookPlus,
   Bot,
   CheckCheck,
   FolderOpen,
@@ -37,11 +36,24 @@ import {
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, date, Failure, Heading, Status } from "./client";
+import BrowserPreview, { describeBrowserAction } from "./BrowserPreview";
 import { useIntervention } from "./Intervention";
 import "./chat.css";
 const active = (run: any) => run && ["queued", "running"].includes(run.status);
-const knowledgeDraft =
-  "请将本次对话中已验证、可供团队复用的测试经验整理成 Markdown，并保存到项目知识库。注明适用环境和验证依据。如果已有相同主题的文档，请先读取再更新。请省略凭据、敏感数据和未经验证的推测。如果没有足够的经验，请说明原因。";
+type PendingMessage = {
+  sid: string;
+  message: {
+    client_id: string;
+    author_id?: string;
+    author_name?: string;
+    content: string;
+    role: "user";
+    created_at: string;
+    attachments: any[];
+    libraryFiles: any[];
+    sending: true;
+  };
+};
 function fileSelectionError(files: Array<{ size: number }>) {
   if (files.length > 5) return "每条消息的附件和测试文件合计最多 5 个";
   if (
@@ -127,6 +139,7 @@ export default function AgentChat({
       readLibraryDraft(`looplab-file-draft:${pid}:${sid || eid}`),
     ),
     [busy, setBusy] = useState(false),
+    [pendingMessage, setPendingMessage] = useState<PendingMessage | null>(null),
     [uploading, setUploading] = useState(false),
     [error, setError] = useState<Error | null>(null);
   const [events, setEvents] = useState<any[]>([]),
@@ -143,11 +156,12 @@ export default function AgentChat({
     [fileSearch, setFileSearch] = useState(""),
     [fileSelection, setFileSelection] = useState<Record<string, any>>({});
   const uploadLock = useRef(false),
+    sendLock = useRef(false),
+    mounted = useRef(true),
     hydrated = useRef(""),
     draftKey = useRef(""),
     fileDraftKey = useRef(""),
     createdSession = useRef("");
-  const sender = useRef<ComponentRef<typeof Sender>>(null);
   const eventScroll = useRef<HTMLDivElement>(null);
   const followEvents = useRef(true);
   const creating = useRef<Promise<string> | null>(null),
@@ -189,8 +203,8 @@ export default function AgentChat({
   });
   const conversation = useQuery({
     queryKey: ["chat", sid],
-    queryFn: async () => {
-      const next = await api(`/chat/sessions/${sid}`);
+    queryFn: async ({ signal }) => {
+      const next = await api(`/chat/sessions/${sid}`, "GET", undefined, signal);
       const old = cache.getQueryData<any>(["chat", sid]);
       const prefix =
         old?.messages?.filter(
@@ -232,12 +246,23 @@ export default function AgentChat({
     setDrawer(null);
   };
   useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
     setError(null);
     const key = `looplab-draft:${pid}:${sid || eid}`;
     const fileKey = `looplab-file-draft:${pid}:${sid || eid}`;
     if (createdSession.current === sid && sid) {
       createdSession.current = "";
       hydrated.current = sid;
+      if (draftKey.current && draftKey.current !== key) {
+        const saved = sessionStorage.getItem(draftKey.current);
+        if (saved) sessionStorage.setItem(key, saved);
+        sessionStorage.removeItem(draftKey.current);
+      }
       draftKey.current = key;
       if (fileDraftKey.current && fileDraftKey.current !== fileKey) {
         const saved = sessionStorage.getItem(fileDraftKey.current);
@@ -398,9 +423,22 @@ export default function AgentChat({
         environmentId: eid,
       })
         .then((s) => {
-          currentSid.current = s.id;
-          createdSession.current = s.id;
-          select(s.id);
+          cache.setQueryData(["chat", s.id], {
+            session: { ...s, is_draft: true, environment_name: env?.name },
+            messages: [],
+            runs: [],
+            artifacts: [],
+            draftAttachments: [],
+            hasOlder: false,
+          });
+          if (mounted.current && !currentSid.current) {
+            currentSid.current = s.id;
+            createdSession.current = s.id;
+            setPendingMessage((pending) =>
+              pending && !pending.sid ? { ...pending, sid: s.id } : pending,
+            );
+            select(s.id);
+          }
           void refreshList();
           return s.id;
         })
@@ -410,7 +448,7 @@ export default function AgentChat({
     return creating.current;
   }
   async function upload(incoming: File[]) {
-    if (readOnly || uploadLock.current || busy) return;
+    if (readOnly || uploadLock.current || sendLock.current) return;
     const problem = fileSelectionError([
       ...files,
       ...libraryFiles,
@@ -453,7 +491,7 @@ export default function AgentChat({
     if (
       readOnly ||
       running ||
-      busy ||
+      sendLock.current ||
       uploading ||
       (!draft.trim() && !files.length && !libraryFiles.length)
     )
@@ -463,6 +501,7 @@ export default function AgentChat({
       setError(new Error(problem));
       return;
     }
+    sendLock.current = true;
     setBusy(true);
     setError(null);
     const text = draft,
@@ -471,31 +510,85 @@ export default function AgentChat({
       signature = JSON.stringify([text, ids, testFileIds]);
     if (outbox.current?.signature !== signature)
       outbox.current = { signature, id: crypto.randomUUID() };
+    const clientId = outbox.current.id;
+    const previousSid = currentSid.current;
+    const author = cache.getQueryData<{ user: { id: string; name: string } }>([
+      "session",
+    ])?.user;
+    let id = previousSid;
+    setPendingMessage({
+      sid: previousSid,
+      message: {
+        client_id: clientId,
+        author_id: author?.id,
+        author_name: author?.name,
+        content: text.trim(),
+        role: "user",
+        created_at: new Date().toISOString(),
+        attachments: files,
+        libraryFiles,
+        sending: true,
+      },
+    });
+    setDraft("");
+    setFiles([]);
+    setLibraryFiles([]);
     try {
-      const clientId = outbox.current!.id;
-      const previousSid = currentSid.current;
-      const id = await ensureSession();
-      await api(`/chat/sessions/${id}/messages`, "POST", {
+      id = await ensureSession();
+      const accepted = await api(`/chat/sessions/${id}/messages`, "POST", {
         text,
         attachmentIds: ids,
         testFileIds,
         clientId,
       });
-      setDraft("");
-      setFiles([]);
-      setLibraryFiles([]);
       outbox.current = null;
       sessionStorage.removeItem(`looplab-draft:${pid}:${id}`);
-      sessionStorage.removeItem(`looplab-draft:${pid}:${eid}`);
       sessionStorage.removeItem(`looplab-file-draft:${pid}:${id}`);
-      if (!previousSid)
+      if (!previousSid) {
+        sessionStorage.removeItem(`looplab-draft:${pid}:${eid}`);
         sessionStorage.removeItem(`looplab-file-draft:${pid}:${eid}`);
-      await cache.invalidateQueries({ queryKey: ["chat", id] });
+      }
+      const chatKey = ["chat", id];
+      await cache.cancelQueries({ queryKey: chatKey, exact: true });
+      if (accepted.run && cache.getQueryData(chatKey)) {
+        cache.setQueryData(chatKey, (old: any) => {
+          if (old.messages.some((m: any) => m.run_id === accepted.runId))
+            return old;
+          return {
+            ...old,
+            session: { ...old.session, ...accepted.session },
+            messages: [
+              ...old.messages,
+              ...accepted.messages.map((m: any) => ({
+                ...m,
+                status: accepted.run.status,
+                attachments: m.role === "user" ? files : [],
+                libraryFiles: m.role === "user" ? libraryFiles : [],
+              })),
+            ],
+            runs: [accepted.run, ...old.runs].slice(0, 25),
+            draftAttachments: old.draftAttachments.filter(
+              (file: any) => !ids.includes(file.id),
+            ),
+          };
+        });
+      } else {
+        await cache.invalidateQueries({ queryKey: chatKey, exact: true });
+      }
       void refreshList();
     } catch (e) {
-      setDraft(draft);
-      setError(e as Error);
+      if (
+        mounted.current &&
+        (currentSid.current === id || (!previousSid && !currentSid.current))
+      ) {
+        setDraft(text);
+        setFiles(files);
+        setLibraryFiles(libraryFiles);
+        setError(e as Error);
+      }
     } finally {
+      setPendingMessage(null);
+      sendLock.current = false;
       setBusy(false);
     }
   }
@@ -718,6 +811,24 @@ export default function AgentChat({
                         )[e.kind]}
               </strong>
               {e.kind === "agent_status" && <p>{e.data.message}</p>}
+              {e.kind === "agent_tool_start" &&
+                e.data.name === "browser_action" &&
+                e.data.args?.step?.action && (
+                  <p>
+                    {describeBrowserAction(
+                      e.data.args.step.action,
+                      e.data.args.step.selector,
+                    )}
+                  </p>
+                )}
+              {e.kind === "step" && e.data.status === "start" && (
+                <p>
+                  {describeBrowserAction(
+                    e.data.step?.action,
+                    e.data.step?.selector,
+                  )}
+                </p>
+              )}
               {e.kind === "node_saved" && <p>{e.data.name || e.data.key}</p>}
               {e.kind === "knowledge_loaded" && (
                 <p>
@@ -772,8 +883,19 @@ export default function AgentChat({
         ))}
     </div>
   );
-  const messages = (data?.messages || []).map((m: any) => ({
-    key: m.id,
+  const pending =
+    pendingMessage &&
+    (pendingMessage.sid === sid ||
+      (!sid && createdSession.current === pendingMessage.sid)) &&
+    !data?.messages.some(
+      (m: any) =>
+        m.client_id === pendingMessage.message.client_id &&
+        m.author_id === pendingMessage.message.author_id,
+    )
+      ? [pendingMessage.message]
+      : [];
+  const messages = [...(data?.messages || []), ...pending].map((m: any) => ({
+    key: m.client_id ? `${m.author_id}:${m.client_id}` : m.id,
     role: m.role === "user" ? "user" : "ai",
     placement: m.role === "user" ? ("end" as const) : ("start" as const),
     variant: m.role === "user" ? ("filled" as const) : ("borderless" as const),
@@ -835,6 +957,10 @@ export default function AgentChat({
             查看记录
           </Link>
         </Space>
+      ) : m.sending ? (
+        <Tag color="processing" role="status">
+          发送中
+        </Tag>
       ) : undefined,
   }));
   return (
@@ -843,7 +969,8 @@ export default function AgentChat({
         title="Agent 对话"
         note="描述目标、上传测试文件或页面截图，让 Agent 调查、编排并验证测试。"
         actions={
-          <Space>
+          <Space wrap>
+            <BrowserPreview key={sid} id={run?.id} status={run?.status} />
             <Button
               className="chat-history-toggle"
               icon={<History size={16} />}
@@ -920,11 +1047,11 @@ export default function AgentChat({
                 }
               />
             )}
-            {sid && conversation.isPending ? (
+            {sid && conversation.isPending && !messages.length ? (
               <Spin />
             ) : messages.length ? (
               <>
-                {data.hasOlder && (
+                {data?.hasOlder && (
                   <Button
                     size="small"
                     type="text"
@@ -990,37 +1117,13 @@ export default function AgentChat({
                   ))}
                 </div>
                 <p className="chat-muted">
-                  也可以先讨论需求，或拖入测试文件 / 截图。
+                  也可以先讨论需求，或拖入测试文件 / 截图。告诉
+                  Agent「这个要记住」即可保存测试经验。
                 </p>
               </div>
             )}
             <div className="chat-composer">
               <Failure error={error} />
-              {!readOnly && messages.length > 0 && (
-                <Tooltip title="把整理请求填入输入框，编辑后可发送">
-                  <Button
-                    className="chat-knowledge-action"
-                    icon={<BookPlus size={15} />}
-                    size="small"
-                    disabled={
-                      busy ||
-                      running ||
-                      uploading ||
-                      draft.includes(knowledgeDraft)
-                    }
-                    onClick={() => {
-                      changeDraft(
-                        draft.trim()
-                          ? `${draft}\n\n${knowledgeDraft}`
-                          : knowledgeDraft,
-                      );
-                      sender.current?.focus();
-                    }}
-                  >
-                    沉淀到知识库
-                  </Button>
-                </Tooltip>
-              )}
               {files.length > 0 && (
                 <div className="chat-pending-files">
                   {files.map((f) => (
@@ -1063,13 +1166,12 @@ export default function AgentChat({
                 </div>
               )}
               <Sender
-                ref={sender}
                 value={draft}
                 onChange={changeDraft}
                 placeholder={
                   readOnly ? "当前会话只读" : "描述测试目标，或继续讨论与修改…"
                 }
-                disabled={readOnly}
+                disabled={readOnly || busy}
                 autoSize={{ minRows: 2, maxRows: 6 }}
                 onSubmit={() => void send()}
                 onPasteFile={(list) => void upload(Array.from(list))}

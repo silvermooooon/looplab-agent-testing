@@ -36,6 +36,11 @@ export interface TestFile {
   data: Buffer;
 }
 type Watcher = { stop: () => void; check?: () => Promise<void> };
+type PreviewAction = {
+  kind: Step["action"] | "inspect";
+  selector?: string;
+  at: number;
+};
 
 export class BrowserSession {
   private browser?: Browser;
@@ -46,6 +51,9 @@ export class BrowserSession {
   private dialogClosed?: Promise<void>;
   private resolveDialog?: () => void;
   private fileOutputs = new Set<string>();
+  private previewAction?: PreviewAction;
+  private previewClick?: { x: number; y: number; at: number; url: string };
+  private previewMasks = new Set<string>();
   page!: Page;
   readonly outputs: Record<string, string> = {};
   constructor(
@@ -82,11 +90,39 @@ export class BrowserSession {
       return route.continue();
     });
     this.page = await this.context.newPage();
+    await this.page.exposeBinding(
+      "__looplabPreviewClick",
+      ({ frame }, x: number, y: number) => {
+        if (
+          frame === this.page.mainFrame() &&
+          Number.isFinite(x) &&
+          Number.isFinite(y)
+        )
+          this.previewClick = { x, y, at: Date.now(), url: frame.url() };
+      },
+    );
+    await this.page.addInitScript(() => {
+      window.addEventListener(
+        "click",
+        (event) => {
+          if (event.isTrusted && event.detail > 0)
+            void (
+              window as unknown as {
+                __looplabPreviewClick: (x: number, y: number) => Promise<void>;
+              }
+            )
+              .__looplabPreviewClick(event.clientX, event.clientY)
+              .catch(() => {});
+        },
+        { capture: true, passive: true },
+      );
+    });
     this.signal.addEventListener("abort", this.abort, { once: true });
     if (this.signal.aborted) {
       await this.close();
       this.signal.throwIfAborted();
     }
+    this.previewAction = { kind: "navigate", at: Date.now() };
     await this.page.goto(this.baseUrl, {
       waitUntil: "domcontentloaded",
       timeout: 30000,
@@ -100,8 +136,10 @@ export class BrowserSession {
     this.clearWatchers();
     await this.browser?.close().catch(() => {});
   }
-  async inspect() {
+  async inspect(recordPreviewAction = false) {
     this.signal.throwIfAborted();
+    if (recordPreviewAction)
+      this.previewAction = { kind: "inspect", at: Date.now() };
     return {
       url: this.page.url(),
       title: await this.page.title(),
@@ -149,6 +187,47 @@ export class BrowserSession {
       mask: [this.page.locator("input[type=password]")],
       timeout: 3000,
     });
+  }
+  async previewFrame() {
+    if (this.dialog) return { state: "dialog" } as const;
+    const viewport = this.page.viewportSize()!;
+    const url = this.page.url();
+    const action = this.previewAction;
+    const data = await this.page.screenshot({
+      type: "jpeg",
+      quality: 55,
+      scale: "css",
+      caret: "initial",
+      mask: ["input[type=password]", ...this.previewMasks].map((s) =>
+        this.page.locator(s),
+      ),
+      timeout: 1200,
+    });
+    if (this.dialog) return { state: "dialog" } as const;
+    if (this.page.url() !== url) return { state: "waiting" } as const;
+    const capturedAt = Date.now();
+    const click = this.previewClick;
+    const point =
+      click &&
+      click.url === url &&
+      capturedAt - click.at <= 1500 &&
+      click.x >= 0 &&
+      click.x <= viewport.width &&
+      click.y >= 0 &&
+      click.y <= viewport.height
+        ? { x: click.x, y: click.y, at: click.at }
+        : undefined;
+    return {
+      state: "ready",
+      data,
+      meta: {
+        ...viewport,
+        path: new URL(url).pathname,
+        action,
+        point,
+        capturedAt,
+      },
+    } as const;
   }
   async manualAction(action: ManualAction) {
     this.signal.throwIfAborted();
@@ -364,6 +443,11 @@ export class BrowserSession {
     let result: unknown;
     let failure: unknown;
     try {
+      this.previewAction = {
+        kind: step.action,
+        ...("selector" in step ? { selector: step.selector } : {}),
+        at: Date.now(),
+      };
       result = await this.executeStep(step, params);
     } catch (error) {
       failure = error;
@@ -449,11 +533,20 @@ export class BrowserSession {
       }
       return;
     }
-    const locator = this.page.locator(resolve(step.selector));
+    const selector = resolve(step.selector);
+    const locator = this.page.locator(selector);
     switch (step.action) {
-      case "fill":
-        await locator.fill(resolve(step.value));
+      case "fill": {
+        const value = resolve(step.value);
+        if (
+          Object.values(this.secrets).some(
+            (secret) => secret && value.includes(secret),
+          )
+        )
+          this.previewMasks.add(selector);
+        await locator.fill(value);
         break;
+      }
       case "click":
         await locator.click();
         break;

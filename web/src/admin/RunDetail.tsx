@@ -13,6 +13,7 @@ import {
 } from "antd";
 import { ArrowLeft, Download } from "lucide-react";
 import { api, date, Failure, Heading, Status } from "./client";
+import BrowserPreview, { describeBrowserAction } from "./BrowserPreview";
 import InterventionPanel, { useIntervention } from "./Intervention";
 export default function RunDetail({
   id,
@@ -99,6 +100,7 @@ export default function RunDetail({
         actions={
           <>
             <Status value={r.status} />
+            <BrowserPreview key={id} id={id} status={r.status} />
             {active && canEdit && (
               <Button
                 danger
@@ -202,8 +204,16 @@ export default function RunDetail({
               render: (_, e) => (
                 <Typography.Text ellipsis style={{ maxWidth: 420 }}>
                   {(e.kind === "step"
-                    ? `${e.data.name} · ${e.data.step?.action} · ${e.data.status}`
+                    ? `${e.data.name} · ${describeBrowserAction(e.data.step?.action, e.data.step?.selector)} · ${e.data.status}`
                     : null) ||
+                    (e.kind === "agent_tool_start" &&
+                    e.data.name === "browser_action" &&
+                    e.data.args?.step?.action
+                      ? describeBrowserAction(
+                          e.data.args.step.action,
+                          e.data.args.step.selector,
+                        )
+                      : null) ||
                     (e.kind === "knowledge_saved" ? e.data.title : null) ||
                     e.data?.message ||
                     e.data?.name ||

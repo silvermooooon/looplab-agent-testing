@@ -111,7 +111,6 @@ await target.request(`${projectPath}/knowledge`, "POST", {
   title: defaultTitle,
   content: `# 项目基准\n本项目的基准标记：${defaultMarker}`,
 });
-const experienceTitle = `调试路径经验 ${stamp}`;
 const experiencePath = `/debug/${marker()}`;
 const initialSession = await target.request(
   `${projectPath}/chat/sessions`,
@@ -223,15 +222,14 @@ const steps: Step[] = [
     timeoutMs: 20_000,
   },
   {
-    action: "click",
+    action: "waitForHidden",
     selector:
       'button[aria-label="沉淀到知识库"], button:has-text("沉淀到知识库")',
   },
-  { action: "waitFor", selector: `${composer}:not(:placeholder-shown)` },
   {
     action: "fill",
     selector: composer,
-    value: `请将刚才确认的调试页路径保存到当前项目知识库。文档标题请使用「${experienceTitle}」，正文用 Markdown 的 ## 验证方法 标题和一条包含原样路径的列表项。保存后告诉我。`,
+    value: "这东西需要被记住。",
   },
   { action: "click", selector: 'button[aria-label="发送消息"]' },
   {
@@ -242,17 +240,17 @@ const steps: Step[] = [
   },
   {
     action: "click",
-    selector: `.chat-events a:has-text("${experienceTitle}")`,
+    selector: '.chat-events a[href*="/knowledge?"]',
   },
   {
     action: "assertText",
-    selector: `tr:has-text("${experienceTitle}")`,
-    text: experienceTitle,
+    selector: `tr:has-text("${experiencePath}")`,
+    text: experiencePath,
     timeoutMs: 20_000,
   },
   {
     action: "click",
-    selector: `tr:has-text("${experienceTitle}") button:has-text("阅读")`,
+    selector: `tr:has-text("${experiencePath}") button:has-text("阅读")`,
   },
   { action: "assertText", selector: '[role="dialog"]', text: experiencePath },
   { action: "screenshot", name: "saved-knowledge.png" },
@@ -282,11 +280,10 @@ const saveRun = runs.find((run: any) => run.id !== initial.runId);
 assert.ok(saveRun, "浏览器没有发送写入知识库的请求");
 const saved = await target.waitRun(saveRun.id, "completed");
 const stored = (await target.request(projectPath)).knowledge.filter(
-  (document: any) => document.title === experienceTitle,
+  (document: any) => document.content.includes(experiencePath),
 );
-assert.equal(stored.length, 1, "应保存一份标题匹配的知识文档");
-assert.match(stored[0].content, /^## 验证方法$/m);
-assert.ok(stored[0].content.includes(experiencePath));
+assert.equal(stored.length, 1, "应根据对话指代保存一份匹配的知识文档");
+const experienceTitle = stored[0].title;
 assert.ok(
   saved.events.some(
     (event: any) =>

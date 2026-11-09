@@ -25,7 +25,8 @@
     "verify:chat": "tsx scripts/verify-chat.ts",
     "verify:self": "tsx scripts/verify-self.ts",
     "verify:self-chat": "tsx scripts/verify-self-chat.ts",
-    "verify:self-knowledge": "tsx scripts/verify-self-knowledge.ts"
+    "verify:self-knowledge": "tsx scripts/verify-self-knowledge.ts",
+    "verify:self-preview": "tsx scripts/verify-self-preview.ts"
   },
   "dependencies": {
     "@ant-design/x": "2.9.0",

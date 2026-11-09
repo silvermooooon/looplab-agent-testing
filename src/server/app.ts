@@ -11,6 +11,7 @@ import { management } from "./management.js";
 import { routes } from "./routes.js";
 import { suiteRoutes } from "./suites.js";
 import { testFileRoutes } from "./test-files.js";
+import { previewRoutes } from "./preview.js";
 
 export async function buildApp() {
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
@@ -38,6 +39,7 @@ export async function buildApp() {
     return reply.code(500).send({ error: "服务处理失败，请检查服务器日志" });
   });
   await routes(app);
+  previewRoutes(app);
   await management(app);
   await chatRoutes(app);
   await suiteRoutes(app);
