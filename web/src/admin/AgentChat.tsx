@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type ComponentRef, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bubble, Conversations, Sender } from "@ant-design/x";
@@ -22,6 +22,7 @@ import {
   Upload,
 } from "antd";
 import {
+  BookPlus,
   Bot,
   CheckCheck,
   FolderOpen,
@@ -39,6 +40,8 @@ import { api, date, Failure, Heading, Status } from "./client";
 import { useIntervention } from "./Intervention";
 import "./chat.css";
 const active = (run: any) => run && ["queued", "running"].includes(run.status);
+const knowledgeDraft =
+  "请将本次对话中已验证、可供团队复用的测试经验整理成 Markdown，并保存到项目知识库。注明适用环境和验证依据。如果已有相同主题的文档，请先读取再更新。请省略凭据、敏感数据和未经验证的推测。如果没有足够的经验，请说明原因。";
 function fileSelectionError(files: Array<{ size: number }>) {
   if (files.length > 5) return "每条消息的附件和测试文件合计最多 5 个";
   if (
@@ -65,6 +68,7 @@ const phaseNames: Record<string, string> = {
   composing: "编排流程",
   testing: "运行测试",
   human: "等待人工处理",
+  knowledge: "处理项目知识",
 };
 const toolNames: Record<string, string> = {
   browser_inspect: "查看页面元素",
@@ -75,6 +79,9 @@ const toolNames: Record<string, string> = {
   read_attachment: "读取测试文件",
   list_test_files: "查找项目测试文件",
   read_test_file: "读取项目测试文件",
+  list_knowledge: "查找项目知识",
+  read_knowledge: "读取知识文档",
+  save_knowledge: "保存知识文档",
   report_progress: "更新进度",
 };
 function Attachment({ file }: { file: any }) {
@@ -140,6 +147,7 @@ export default function AgentChat({
     draftKey = useRef(""),
     fileDraftKey = useRef(""),
     createdSession = useRef("");
+  const sender = useRef<ComponentRef<typeof Sender>>(null);
   const eventScroll = useRef<HTMLDivElement>(null);
   const followEvents = useRef(true);
   const creating = useRef<Promise<string> | null>(null),
@@ -603,6 +611,8 @@ export default function AgentChat({
         "agent_tool_start",
         "agent_tool_end",
         "node_saved",
+        "knowledge_loaded",
+        "knowledge_saved",
         "flow_saved",
         "node_passed",
         "step",
@@ -688,6 +698,11 @@ export default function AgentChat({
                       : (
                           {
                             node_saved: "共享节点已保存",
+                            knowledge_loaded: "已加载项目知识",
+                            knowledge_saved:
+                              e.data.action === "updated"
+                                ? "已更新知识文档"
+                                : "已新增知识文档",
                             flow_saved: "流程已保存",
                             node_passed: "节点验证通过",
                             step:
@@ -704,6 +719,21 @@ export default function AgentChat({
               </strong>
               {e.kind === "agent_status" && <p>{e.data.message}</p>}
               {e.kind === "node_saved" && <p>{e.data.name || e.data.key}</p>}
+              {e.kind === "knowledge_loaded" && (
+                <p>
+                  本轮载入 {e.data.count} 份文档。
+                  {e.data.hasMore && "Agent 可查阅其余文档或完整内容。"}
+                </p>
+              )}
+              {e.kind === "knowledge_saved" && (
+                <p>
+                  <Link
+                    to={`/projects/${pid}/knowledge?env=${eid}&q=${encodeURIComponent(e.data.title)}`}
+                  >
+                    {e.data.title}
+                  </Link>
+                </p>
+              )}
               <small>
                 {new Date(e.created_at).toLocaleTimeString("zh-CN")}
               </small>
@@ -966,6 +996,31 @@ export default function AgentChat({
             )}
             <div className="chat-composer">
               <Failure error={error} />
+              {!readOnly && messages.length > 0 && (
+                <Tooltip title="把整理请求填入输入框，编辑后可发送">
+                  <Button
+                    className="chat-knowledge-action"
+                    icon={<BookPlus size={15} />}
+                    size="small"
+                    disabled={
+                      busy ||
+                      running ||
+                      uploading ||
+                      draft.includes(knowledgeDraft)
+                    }
+                    onClick={() => {
+                      changeDraft(
+                        draft.trim()
+                          ? `${draft}\n\n${knowledgeDraft}`
+                          : knowledgeDraft,
+                      );
+                      sender.current?.focus();
+                    }}
+                  >
+                    沉淀到知识库
+                  </Button>
+                </Tooltip>
+              )}
               {files.length > 0 && (
                 <div className="chat-pending-files">
                   {files.map((f) => (
@@ -1008,6 +1063,7 @@ export default function AgentChat({
                 </div>
               )}
               <Sender
+                ref={sender}
                 value={draft}
                 onChange={changeDraft}
                 placeholder={

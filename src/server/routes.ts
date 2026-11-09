@@ -25,6 +25,7 @@ import { specSchema, flowSchema, interpolate } from "../testing/spec.js";
 import { exportScript } from "../testing/export.js";
 import { cancelRun } from "./worker.js";
 import { interventionRoutes } from "./intervention.js";
+import { knowledgeInput, saveKnowledge } from "./knowledge.js";
 
 const id = z.string().uuid();
 const name = z.string().trim().min(1).max(120);
@@ -415,24 +416,15 @@ export async function routes(app: FastifyInstance) {
   app.post("/api/projects/:pid/knowledge", async (r) => {
     const pid = path(r, "pid");
     await requireMember(pid, uid(r), true);
-    const b = z
-      .object({ title: name, content: z.string().min(1).max(60000) })
-      .parse(r.body);
-    return one(
-      "INSERT INTO knowledge(project_id,title,content) VALUES($1,$2,$3) RETURNING *",
-      [pid, b.title, b.content],
-    );
+    return saveKnowledge(pid, knowledgeInput.parse(r.body));
   });
   app.put("/api/projects/:pid/knowledge/:kid", async (r) => {
     const pid = path(r, "pid");
     await requireMember(pid, uid(r), true);
-    const b = z
-      .object({ title: name, content: z.string().min(1).max(60000) })
-      .parse(r.body);
-    return one(
-      "UPDATE knowledge SET title=$1,content=$2,updated_at=now() WHERE id=$3 AND project_id=$4 RETURNING *",
-      [b.title, b.content, path(r, "kid"), pid],
-    );
+    return saveKnowledge(pid, {
+      ...knowledgeInput.parse(r.body),
+      id: path(r, "kid"),
+    });
   });
   app.delete("/api/projects/:pid/knowledge/:kid", async (r) => {
     const pid = path(r, "pid");

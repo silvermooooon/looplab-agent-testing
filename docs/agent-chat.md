@@ -25,6 +25,12 @@ UI 直接使用 [Ant Design X](https://github.com/ant-design/x) 的 `Conversatio
 
 已有消息恢复到 Agent 的初始上下文，再调用 `continue()`；历史 assistant 消息不会作为新消息重新发出或写入当前回复。每轮仍是独立 Worker 任务，页面刷新、浏览器断线不会终止后台执行。
 
+## 项目知识
+
+每次 Agent 聊天、生成流程或修复节点，都会重新加载当前项目最近更新的 8 份文档，每份最多加载前 2,400 个字符。短文档可直接使用，Agent 可以按标题或正文查找其他文档，并分页读取全文。聊天动态显示本轮加载的文档数。知识在项目的所有环境之间共享，固定版本流程的直接回放无需读取知识库。
+
+调查或执行结束后，可以在同一会话点击 **沉淀到知识库**，编辑整理请求后发送，也可以直接告诉 Agent 要保存哪些经验。Agent 可以新建 Markdown 文档，或在用户明确要求时先读取并更新指定文档。文档可记录适用环境、可复现的操作与选择器、验证状态和来源运行。保存成功后，聊天动态提供知识库入口，项目成员可查看，所有者和编辑者可继续编辑。
+
 ## 附件和上下文边界
 
 支持 PNG/JPEG/WebP 截图、PDF，以及 UTF-8 TXT/Markdown/CSV/JSON/YAML/TS/JS/Feature/Log 文本文件。通过扩展名与签名校验；不支持 SVG、Office 文件、压缩包或任意二进制文件。上传的代码只作为测试资料读取，不执行。
@@ -41,10 +47,9 @@ UI 直接使用 [Ant Design X](https://github.com/ant-design/x) 的 `Conversatio
 ## 验证
 
 ```bash
-npm test
 npm run build
-npm run verify:management
-npm run verify:chat
+npm run verify:self-chat
+npm run verify:self-knowledge
 ```
 
 `verify:chat` 需要本地服务和 `/demo` 已开启，使用 `test:acceptance` 生成的 `.data/acceptance-credentials.json` 登录，在独立项目执行真实 GPT 6 Luna 请求，会消耗 API 配额。结果和截图保存在被 Git 忽略的 `.data/chat-acceptance-result.json` 与 `.data/screenshots/chat/`。

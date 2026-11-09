@@ -40,7 +40,7 @@ const titles: Record<string, [string, string, string]> = {
   ],
   knowledge: [
     "知识库",
-    "向 Agent 提供项目背景、页面说明、操作约定与预期行为。",
+    "项目各环境共享知识库。Agent 每轮自动加载项目知识，也可以在对话中将测试经验保存为文档。",
     "添加知识",
   ],
   runs: [

@@ -141,6 +141,9 @@
 .chat-composer .ant-alert {
   margin-bottom: 10px;
 }
+.chat-knowledge-action {
+  margin-bottom: 8px;
+}
 .chat-composer-note {
   display: flex;
   justify-content: space-between;

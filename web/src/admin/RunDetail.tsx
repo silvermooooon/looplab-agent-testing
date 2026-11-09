@@ -72,6 +72,8 @@ export default function RunDetail({
     conversation_completed: "对话完成",
     node_saved: "保存节点",
     flow_saved: "保存流程",
+    knowledge_loaded: "加载项目知识",
+    knowledge_saved: "保存知识文档",
     intervention: "人工接管状态",
     intervention_action: "人工操作",
   };
@@ -202,6 +204,7 @@ export default function RunDetail({
                   {(e.kind === "step"
                     ? `${e.data.name} · ${e.data.step?.action} · ${e.data.status}`
                     : null) ||
+                    (e.kind === "knowledge_saved" ? e.data.title : null) ||
                     e.data?.message ||
                     e.data?.name ||
                     e.data?.error ||
