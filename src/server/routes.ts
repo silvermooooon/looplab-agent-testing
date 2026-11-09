@@ -27,6 +27,11 @@ import { cancelRun } from "./worker.js";
 import { interventionRoutes } from "./intervention.js";
 import { knowledgeInput, saveKnowledge } from "./knowledge.js";
 import {
+  personalMemoryContent,
+  readPersonalMemory,
+  writePersonalMemory,
+} from "./personal-memory.js";
+import {
   caseInput,
   readTestCase,
   readTestCaseVersions,
@@ -172,6 +177,26 @@ export async function routes(app: FastifyInstance) {
     ]);
     reply.clearCookie("qa_session", { path: "/" });
     return { ok: true };
+  });
+  app.get("/api/me/memory", async (r, reply) => {
+    reply.header("Cache-Control", "private, no-store");
+    return readPersonalMemory(uid(r));
+  });
+  app.put("/api/me/memory", async (r, reply) => {
+    const input = z
+      .object({
+        content: personalMemoryContent,
+        version: z
+          .string()
+          .regex(/^[0-9a-f]{40}$/)
+          .nullable(),
+      })
+      .strict()
+      .parse(r.body);
+    if (config.apiKey && input.content.includes(config.apiKey))
+      throw new HttpError(400, "个人记忆不能保存 API 凭据");
+    reply.header("Cache-Control", "private, no-store");
+    return writePersonalMemory(uid(r), input);
   });
   app.get("/api/projects", async (r) =>
     query(

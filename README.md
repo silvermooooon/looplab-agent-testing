@@ -12,6 +12,7 @@
 - 独立 Agent 对话页：多轮讨论、文件/图片/PDF 输入、即时发送反馈、Responses 流式回复、实时浏览器与执行动态、会话归档与团队共享。
 - Ant Design X 聊天组件与 Ant Design 管理界面、TanStack Query 缓存、React Router 深链接；列表按需分页与搜索。
 - 项目独立知识库，支持文本与 Markdown 导入、编辑。Agent 自动加载近期文档、按需查阅全文，并可根据聊天指令将验证经验保存为项目知识。
+- 账号级个人记忆，在同一服务的不同项目中沿用长期测试偏好，并用 Git 保存版本。
 - 项目级测试文件库：任意文件上传、查找、下载与归档；文件在项目成员和各环境之间共享，归档不影响旧流程。
 - 独立环境管理页；地址、变量与凭据键值表单；环境复制、归档和恢复；复制时同步复制节点版本和流程。
 - 自然语言用例 → 真实浏览器探索 → 生成参数化节点 → 组合流程 → 全新浏览器回放。
@@ -35,7 +36,7 @@ Jira 阶段工具、登录方式、站点脚本和场内适配边界见 [Jira �
 
 ## 本地启动
 
-需要 Node.js **22+**（推荐 24）、npm 和 PostgreSQL。已在 Node.js 24.19、PostgreSQL 18.6、Google Chrome 上完成验收。
+需要 Node.js **22+**（推荐 24）、npm 和 PostgreSQL。个人记忆使用 Git，服务进程需能调用 `git` 命令。已在 Node.js 24.19、PostgreSQL 18.6、Google Chrome 上完成验收。
 
 ```bash
 npm ci
@@ -57,6 +58,7 @@ cp .env.example .env.local
 | `DATABASE_URL`        | 专用 PostgreSQL 数据库连接地址；支持远程数据库                |
 | `APP_SECRET`          | 至少 32 个随机字符；加密环境凭据；共享数据库的实例必须一致    |
 | `OPENAI_ENV_FILE`     | 可选：从已有 env 文件读取未单独配置的 AI 参数                 |
+| `LOOPLAB_PERSONAL_MEMORY_DIR` | 可选的本地个人记忆目录，默认 `.data/personal-memory` |
 | `HOST`                | 服务监听地址，默认 `127.0.0.1`                                |
 | `PORT`                | 服务监听端口，默认 `4310`；整数范围 `1–65535`                 |
 | `PLAYWRIGHT_CHANNEL`  | 使用本机 Chrome 时设为 `chrome`；留空使用 Playwright Chromium |
@@ -104,6 +106,8 @@ npm run dev:web
 
 Jira 登录状态保存在本机 `.data/jira-sessions/`，按用户、项目、站点隔离，不同步到数据库。也可由团队共用一个 Node.js 服务，但浏览器实际运行在服务所在机器，内网访问和登录现场随该机器，而非访问页面的客户端电脑。
 
+个人记忆保存在服务所在机器的磁盘上，每个账号各用一个 Git 仓库。共享 PostgreSQL 的不同服务实例不会自动同步各自的本地目录。个人偏好可影响共享项目中的回复和测试产出，记忆文档本身通过账号页面查看。
+
 远程服务可设置 `HOST=0.0.0.0`，由反向代理提供 HTTPS，并设置 `COOKIE_SECURE=true`。数据库角色需要在专用数据库中创建和维护 `qa` schema 的权限。
 
 ## 使用流程
@@ -118,6 +122,7 @@ Jira 登录状态保存在本机 `.data/jira-sessions/`，按用户、项目、�
 8. 通过“复制环境”复用资产，再单独调整新环境配置与节点实现。
 9. 在“测试组”中按当前环境选择流程并调整顺序；运行后查看整组结果，再进入单项报告检查失败原因。
 10. 在“Jira 需求”粘贴 Ticket 链接并进入对话。可只生成用例，手动编辑后再编排、运行；也可新开对话单独回写已完成运行或调整状态。站点选择器和登录 origin 在“站点脚本”中管理。
+11. 在 Agent 对话中说“以后所有项目先给我失败摘要”，可记住长期测试偏好。页眉的“个人记忆”入口可查看、编辑和清空当前记忆。清空后仍保留 Git 历史。
 
 健康检查适合验证服务和关键入口是否可用，功能检查针对具体能力，回归检查用于功能变更后的整体验收，一次性检查用于临时调查。全量检查通常是覆盖多个类别的测试组：同一流程可以加入多个组，无需重复生成。组内流程各自使用新的浏览器，顺序只保证先后执行，不共享浏览器登录状态。
 
@@ -148,6 +153,7 @@ npm run build              # 后端、前端严格 TS 检查与生产构建
 npm run verify:self         # 独立 LoopLab 实例的真实自举测试
 npm run verify:self-chat    # 在自举项目中验证真实 AI 对话、上下文与刷新
 npm run verify:self-knowledge # 知识默认加载、检索、对话保存与复用
+npm run verify:self-memory    # 个人记忆跨项目复用、账号隔离与 Git 版本
 npm run verify:self-preview   # 即时发送反馈、Agent 和流程的实时画面
 npm run verify:self-jira      # 本地模拟 Jira 的分阶段浏览器验收
 npx tsx scripts/verify-self-suites.ts        # 测试组管理、顺序与汇总

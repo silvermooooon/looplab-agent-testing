@@ -34,6 +34,14 @@ UI 直接使用 [Ant Design X](https://github.com/ant-design/x) 的 `Conversatio
 
 调查或执行结束后，在同一会话说 **这东西需要被记住** 或 **把这个发现记下来**。Agent 会从上下文判断你指的是哪条经验，整理成 Markdown，查找并更新同主题文档或新建文档。文档可记录适用环境、可复现的操作与选择器、验证状态和来源运行。保存成功后，聊天动态提供知识库入口，项目成员可查看，所有者和编辑者可继续编辑。
 
+## 个人记忆
+
+在当轮对话中告诉 Agent **以后所有项目先给我失败摘要**，或明确要求记住、修改、忘记某项长期测试习惯。Agent 按发起本轮任务的账号加载个人记忆，按需将相关偏好用于生成、修复和汇报。当前用户明确提出的任务要求、项目规则和验证标准优先。选择器、接口约定和项目验证经验继续进入项目知识库，一次性的要求留在当前任务。
+
+页眉的 **个人记忆** 页面可编辑、重新读取和清空。每个账号的 Git 仓库包含一份最多 6,000 字符的 `MEMORY.md`。清空会提交空内容，历史版本仍在。存储默认位于服务端 `.data/personal-memory`，可通过 `LOOPLAB_PERSONAL_MEMORY_DIR` 指定目录，需要服务进程可调用 Git CLI。共享数据库的服务实例各自读取本地目录。项目成员仍可看到共享对话和测试产出，其中可能体现发起人的偏好。
+
+上下文加载借鉴 Duet 的 `backend/app/twin_execution.py`，保存沿用其 Agent Runtime SDK 以 Git ref 比对旧版本后更新的思路。读取时固定提交版本，保存时只有版本仍匹配才更新，遇到并发修改可重新读取并核对草稿。LoopLab 由当前用户消息或账号页面触发写入，Duet 的 Dream 属于独立的后台整理流程。
+
 ## 附件和上下文边界
 
 支持 PNG/JPEG/WebP 截图、PDF，以及 UTF-8 TXT/Markdown/CSV/JSON/YAML/TS/JS/Feature/Log 文本文件。通过扩展名与签名校验；不支持 SVG、Office 文件、压缩包或任意二进制文件。上传的代码只作为测试资料读取，不执行。
@@ -41,7 +49,7 @@ UI 直接使用 [Ant Design X](https://github.com/ant-design/x) 的 `Conversatio
 - 单附件最大 5 MB，文本最大 200 KB；单条消息最多 5 个附件、合计 12 MB。
 - 单会话累计最多 50 MB / 100 个附件。
 - 图片通过 `input_image`、PDF 通过 `input_file` 直接送入 Responses API；文本按内容送入，长文件可通过 `read_attachment` 分页读取。
-- 模型保留最近 40 条消息，文本上下文预算 120,000 字符、二进制附件 12 MB；较新消息优先。长期记忆摘要、向量检索尚未实现。
+- 模型保留最近 40 条消息，文本上下文预算 120,000 字符、二进制附件 12 MB；较新消息优先。会话历史摘要和向量检索尚未实现。
 - UI 每次读取最近 50 条消息，按需加载更早内容。会话列表每页 30 条。
 - 活动任务使用 SSE；空闲会话每 10 秒检查团队新消息，隐藏标签页停止周期请求。普通管理列表原有按需加载策略不变。
 
@@ -53,6 +61,7 @@ UI 直接使用 [Ant Design X](https://github.com/ant-design/x) 的 `Conversatio
 npm run build
 npm run verify:self-chat
 npm run verify:self-knowledge
+npm run verify:self-memory
 npm run verify:self-preview
 ```
 

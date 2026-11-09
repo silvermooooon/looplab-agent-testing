@@ -33,6 +33,9 @@ export const config = {
   secureCookie: env.COOKIE_SECURE === "true",
   demoEnabled: env.DEMO_TARGET_ENABLED === "true",
   browserChannel: env.PLAYWRIGHT_CHANNEL || undefined,
+  personalMemoryDir: resolve(
+    env.LOOPLAB_PERSONAL_MEMORY_DIR || ".data/personal-memory",
+  ),
   runTimeoutMs: positiveInteger(
     "RUN_TIMEOUT_MS",
     env.RUN_TIMEOUT_MS,

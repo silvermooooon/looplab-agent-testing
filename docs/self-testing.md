@@ -77,6 +77,14 @@ npm run verify:self-knowledge
 
 脚本在独立目标实例中创建知识文档与新会话，通过真实模型验证默认加载、按需查找和分页阅读、从聊天新建和更新 Markdown 文档、跨环境复用和跨项目隔离。浏览器发送“这东西需要被记住”，再通过保存事件打开知识库核对正文。结果保存在 `.data/self-test-knowledge-result.json`。
 
+验证个人记忆时，建议为目标实例设置独立的 `LOOPLAB_PERSONAL_MEMORY_DIR`。将 `SELF_TEST_TARGET_MEMORY_DIR` 指向同一目录，以便验收检查实际 Git 提交。
+
+```bash
+SELF_TEST_TARGET_MEMORY_DIR=.data/selftest-personal-memory npm run verify:self-memory
+```
+
+验收通过真实 Agent 保存跨项目偏好，检查同账号在新项目中应用偏好、其他成员独立加载项目知识。工作台通过浏览器编辑账号记忆，并检查版本变化和刷新恢复。脚本还检查旧版本写入冲突、相同内容不产生新提交，以及清空后保留 Git 历史。结果保存在 `.data/self-test-memory-result.json`。
+
 验证即时发送反馈和实时浏览器：
 
 ```bash

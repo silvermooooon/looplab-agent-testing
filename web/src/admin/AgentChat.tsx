@@ -81,6 +81,7 @@ const phaseNames: Record<string, string> = {
   testing: "运行测试",
   human: "等待人工处理",
   knowledge: "处理项目知识",
+  memory: "更新个人记忆",
   jira: "操作 Jira 页面",
 };
 const toolNames: Record<string, string> = {
@@ -95,6 +96,7 @@ const toolNames: Record<string, string> = {
   list_knowledge: "查找项目知识",
   read_knowledge: "读取知识文档",
   save_knowledge: "保存知识文档",
+  save_personal_memory: "更新个人记忆",
   report_progress: "更新进度",
   jira_read_issue: "读取 Jira 需求",
   jira_inspect: "查看 Jira 页面",
@@ -716,6 +718,7 @@ export default function AgentChat({
   const visibleEvents = events.filter(
     (e) =>
       e.data.name !== "report_progress" &&
+      (e.kind !== "personal_memory_loaded" || e.data.hasMemory) &&
       [
         "agent_status",
         "agent_tool_start",
@@ -723,6 +726,9 @@ export default function AgentChat({
         "node_saved",
         "knowledge_loaded",
         "knowledge_saved",
+        "personal_memory_loaded",
+        "personal_memory_saved",
+        "personal_memory_unavailable",
         "flow_saved",
         "node_passed",
         "step",
@@ -814,6 +820,9 @@ export default function AgentChat({
                           {
                             node_saved: "共享节点已保存",
                             knowledge_loaded: "已加载项目知识",
+                            personal_memory_loaded: "已应用个人记忆上下文",
+                            personal_memory_saved: "个人记忆已更新",
+                            personal_memory_unavailable: "个人记忆暂不可用",
                             knowledge_saved:
                               e.data.action === "updated"
                                 ? "已更新知识文档"

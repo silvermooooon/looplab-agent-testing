@@ -52,6 +52,7 @@ const TestSuites = lazy(() => import("./admin/TestSuites"));
 const SuiteRunDetail = lazy(() => import("./admin/SuiteRunDetail"));
 const FileLibrary = lazy(() => import("./admin/FileLibrary"));
 const Jira = lazy(() => import("./admin/Jira"));
+const PersonalMemory = lazy(() => import("./admin/PersonalMemory"));
 export const sections = [
   ["agent", "Agent 对话", MessageSquare],
   ["environments", "环境管理", Layers],
@@ -116,6 +117,10 @@ function Session() {
       <Route
         path="/projects/:pid/:section"
         element={<Shell user={user.data.user} model={model} />}
+      />
+      <Route
+        path="/memory"
+        element={<Shell user={user.data.user} model={model} showMemory />}
       />
       <Route path="*" element={<Navigate to="/projects" replace />} />
     </Routes>
@@ -203,7 +208,15 @@ function Auth({ model }: { model: string }) {
     </div>
   );
 }
-function Shell({ user, model }: { user: any; model: string }) {
+function Shell({
+  user,
+  model,
+  showMemory = false,
+}: {
+  user: any;
+  model: string;
+  showMemory?: boolean;
+}) {
   const [collapsed, setCollapsed] = useState(
     () => window.matchMedia("(max-width: 991px)").matches,
   );
@@ -248,7 +261,9 @@ function Shell({ user, model }: { user: any; model: string }) {
             if (window.innerWidth < 992) setCollapsed(true);
           }}
           theme="dark"
-          selectedKeys={pid ? [section || "environments"] : ["projects"]}
+          selectedKeys={
+            showMemory ? [] : pid ? [section || "environments"] : ["projects"]
+          }
           items={[
             {
               key: "projects",
@@ -290,6 +305,9 @@ function Shell({ user, model }: { user: any; model: string }) {
             )}
           </Space>
           <Space>
+            <Link to="/memory" aria-current={showMemory ? "page" : undefined}>
+              个人记忆
+            </Link>
             <Avatar size="small">{user.name[0]}</Avatar>
             <span className="user-name">{user.name}</span>
             <Button
@@ -313,7 +331,9 @@ function Shell({ user, model }: { user: any; model: string }) {
         </Layout.Header>
         <Layout.Content className="admin-content">
           <Suspense fallback={<Spin />}>
-            {!pid ? (
+            {showMemory ? (
+              <PersonalMemory key={user.id} userId={user.id} />
+            ) : !pid ? (
               <Projects />
             ) : workspace.error ? (
               <Failure

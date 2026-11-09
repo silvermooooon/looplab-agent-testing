@@ -26,6 +26,7 @@
     "verify:self": "tsx scripts/verify-self.ts",
     "verify:self-chat": "tsx scripts/verify-self-chat.ts",
     "verify:self-knowledge": "tsx scripts/verify-self-knowledge.ts",
+    "verify:self-memory": "tsx scripts/verify-self-memory.ts",
     "verify:self-preview": "tsx scripts/verify-self-preview.ts",
     "verify:self-jira": "tsx scripts/verify-self-jira.ts"
   },
