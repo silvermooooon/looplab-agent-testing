@@ -10,6 +10,7 @@ import type {
   Message,
   StreamFn,
 } from "../runtime/index.js";
+import { DEFAULT_REASONING_EFFORT, type ReasoningEffort } from "./effort.js";
 
 export const MODEL = "gpt-6-luna" as const;
 export function responseInput(messages: Message[]): ResponseInput {
@@ -118,8 +119,13 @@ export function createResponsesStream(options: {
   apiKey: string;
   baseURL: string;
   model?: string;
+  reasoningEffort?: ReasoningEffort;
 }): StreamFn {
-  const { model = MODEL, ...clientOptions } = options;
+  const {
+    model = MODEL,
+    reasoningEffort = DEFAULT_REASONING_EFFORT,
+    ...clientOptions
+  } = options;
   const client = new OpenAI({
     ...clientOptions,
     timeout: 120000,
@@ -142,7 +148,7 @@ export function createResponsesStream(options: {
           stream: true,
           store: false,
           include: ["reasoning.encrypted_content"],
-          reasoning: { effort: "low" },
+          reasoning: { effort: reasoningEffort },
           max_output_tokens: 10000,
           parallel_tool_calls: false,
           tools: tools.map((t) => ({

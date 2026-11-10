@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { setTimeout } from "node:timers/promises";
+import type { ReasoningEffort } from "../src/openai/effort.js";
 import { one, pool } from "../src/server/db.js";
 import { saveLlmSettings } from "../src/server/platform-settings.js";
 
@@ -58,6 +59,7 @@ class Client {
 async function responsesFixture(
   label: string,
   stamp: string,
+  effort: ReasoningEffort,
   firstTurnGate?: Promise<void>,
 ) {
   const model = `shared-settings-${label}-${stamp}`;
@@ -74,6 +76,7 @@ async function responsesFixture(
       for await (const chunk of request) chunks.push(Buffer.from(chunk));
       const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       assert.ok(input.model === model && input.stream === true);
+      assert.equal(input.reasoning.effort, effort);
       requests++;
       const firstTurn = firstTurnGate && requests === 1;
       if (firstTurn) {
@@ -212,9 +215,9 @@ try {
   );
   console.log("PASS 两实例共享账号和项目，均可读取同一加密环境");
 
-  const before = await responsesFixture("before", stamp, gate);
+  const before = await responsesFixture("before", stamp, "xhigh", gate);
   fixtures.push(before);
-  const after = await responsesFixture("after", stamp);
+  const after = await responsesFixture("after", stamp, "low");
   fixtures.push(after);
 
   async function checkPublicSettings(
@@ -249,7 +252,7 @@ try {
     }
   }
 
-  async function startChat(client: Client) {
+  async function startChat(client: Client, reasoningEffort?: ReasoningEffort) {
     const session = await client.request(`${scope}/chat/sessions`, {
       environmentId: environment.id,
       title: "共享配置动态更新验收",
@@ -257,6 +260,7 @@ try {
     const run = await client.request(`/chat/sessions/${session.id}/messages`, {
       clientId: randomUUID(),
       text: "请回复当前验收标记。",
+      reasoningEffort,
     });
     return { sessionId: session.id as string, runId: run.runId as string };
   }
@@ -290,7 +294,7 @@ try {
 
   const oldSettings = await saveLlmSettings(before.settings);
   await checkPublicSettings(oldSettings);
-  const running = await startChat(first);
+  const running = await startChat(first, "xhigh");
   const deadline = Date.now() + 30_000;
   while (!before.requests && !before.error && Date.now() < deadline)
     await setTimeout(100);

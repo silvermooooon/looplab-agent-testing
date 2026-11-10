@@ -354,7 +354,11 @@ async function perform(
     await log("run_started", {
       mode: run.mode,
       environment: env.name,
-      ...(llm && { model: llm.model, llmRevision: llm.revision }),
+      ...(llm && {
+        model: llm.model,
+        llmRevision: llm.revision,
+        reasoningEffort: run.reasoning_effort,
+      }),
     });
     let flow = run.flow_id
       ? await one(
@@ -1045,6 +1049,7 @@ async function perform(
           apiKey: llm.apiKey,
           baseURL: llm.baseUrl,
           model: llm.model,
+          reasoningEffort: run.reasoning_effort,
         }),
         tools,
         maxTurns: 45,

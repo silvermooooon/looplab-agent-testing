@@ -1,5 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import {
+  DEFAULT_REASONING_EFFORT,
+  REASONING_EFFORTS,
+} from "../openai/effort.js";
 import { one, query, transaction } from "./db.js";
 import {
   HttpError,
@@ -19,7 +23,7 @@ const uid = (r: FastifyRequest) => {
 const path = (r: FastifyRequest, key: string) =>
   uuid.parse((r.params as any)[key]);
 const runColumns =
-  "id,events_complete,conversation_id,environment_id,case_id,flow_id,mode,status,summary,error,cancel_requested,created_at,finished_at";
+  "id,events_complete,conversation_id,environment_id,case_id,flow_id,mode,status,summary,error,cancel_requested,created_at,finished_at,reasoning_effort";
 async function session(r: FastifyRequest, edit = false) {
   const s = await one(
     "SELECT s.*,c.title case_title,c.instructions,c.is_draft,e.name environment_name FROM chat_sessions s JOIN test_cases c ON c.id=s.case_id JOIN environments e ON e.id=s.environment_id WHERE s.id=$1",
@@ -291,6 +295,9 @@ export async function chatRoutes(app: FastifyInstance) {
         attachmentIds: z.array(uuid).max(5).default([]),
         testFileIds: z.array(uuid).max(5).default([]),
         clientId: uuid,
+        reasoningEffort: z
+          .enum(REASONING_EFFORTS)
+          .default(DEFAULT_REASONING_EFFORT),
       })
       .refine(
         (b) => b.text.length || b.attachmentIds.length || b.testFileIds.length,
@@ -352,7 +359,8 @@ export async function chatRoutes(app: FastifyInstance) {
         throw new HttpError(400, "单条消息附件合计不能超过 12 MB");
       const run = (
         await c.query(
-          `INSERT INTO runs(project_id,environment_id,case_id,mode,repair_node_id,requested_by,conversation_id,executor_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING ${runColumns}`,
+          `INSERT INTO runs(project_id,environment_id,case_id,mode,repair_node_id,requested_by,conversation_id,executor_id,reasoning_effort)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING ${runColumns}`,
           [
             s.project_id,
             s.environment_id,
@@ -362,6 +370,7 @@ export async function chatRoutes(app: FastifyInstance) {
             uid(r),
             s.id,
             localExecutorId,
+            b.reasoningEffort,
           ],
         )
       ).rows[0];

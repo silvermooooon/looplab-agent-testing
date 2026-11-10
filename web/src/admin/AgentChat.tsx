@@ -13,6 +13,7 @@ import {
   Modal,
   Pagination,
   Segmented,
+  Select,
   Space,
   Spin,
   Table,
@@ -35,11 +36,20 @@ import {
 } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import {
+  DEFAULT_REASONING_EFFORT,
+  REASONING_EFFORTS,
+  type ReasoningEffort,
+} from "../../../src/openai/effort.js";
 import { api, date, Failure, Heading, Status } from "./client";
 import BrowserPreview, { describeBrowserAction } from "./BrowserPreview";
 import { useIntervention } from "./Intervention";
 import "./chat.css";
 const active = (run: any) => run && ["queued", "running"].includes(run.status);
+const effortOptions = REASONING_EFFORTS.map((value) => ({
+  value,
+  label: value,
+}));
 type PendingMessage = {
   sid: string;
   message: {
@@ -152,6 +162,9 @@ export default function AgentChat({
   const cache = useQueryClient(),
     { message } = App.useApp();
   const [draft, setDraft] = useState(""),
+    [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(
+      DEFAULT_REASONING_EFFORT,
+    ),
     [files, setFiles] = useState<any[]>([]),
     [libraryFiles, setLibraryFiles] = useState<any[]>(() =>
       readLibraryDraft(`looplab-file-draft:${pid}:${sid || eid}`),
@@ -526,7 +539,7 @@ export default function AgentChat({
     const text = draft,
       ids = files.map((f) => f.id),
       testFileIds = libraryFiles.map((file) => file.id),
-      signature = JSON.stringify([text, ids, testFileIds]);
+      signature = JSON.stringify([text, ids, testFileIds, reasoningEffort]);
     if (outbox.current?.signature !== signature)
       outbox.current = { signature, id: crypto.randomUUID() };
     const clientId = outbox.current.id;
@@ -559,6 +572,7 @@ export default function AgentChat({
         attachmentIds: ids,
         testFileIds,
         clientId,
+        reasoningEffort,
       });
       outbox.current = null;
       sessionStorage.removeItem(`looplab-draft:${pid}:${id}`);
@@ -1321,7 +1335,22 @@ export default function AgentChat({
                 }
               />
               <div className="chat-composer-note">
-                <span>{model ? `${model} · ` : ""}Responses API</span>
+                <Space size={10} wrap>
+                  <span>{model ? `${model} · ` : ""}Responses API</span>
+                  <Space size={6}>
+                    <label htmlFor="chat-reasoning-effort">思考深度</label>
+                    <Select<ReasoningEffort>
+                      id="chat-reasoning-effort"
+                      size="small"
+                      style={{ width: 90 }}
+                      value={reasoningEffort}
+                      options={effortOptions}
+                      onChange={setReasoningEffort}
+                      disabled={readOnly || busy}
+                      virtual={false}
+                    />
+                  </Space>
+                </Space>
                 <span>
                   Enter 发送 · Shift+Enter 换行 · 临时附件 ≤ 5 MiB · 每条合计 ≤
                   12 MiB

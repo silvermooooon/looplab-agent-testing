@@ -9,7 +9,7 @@ import {
 import { migrateJira } from "./jira-db.js";
 import { decryptSecrets } from "./security.js";
 
-const schemaVersion = 11;
+const schemaVersion = 12;
 export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
   max: 12,
@@ -229,6 +229,15 @@ export async function migrate() {
         ],
       );
       await c.query("INSERT INTO qa.schema_migrations(version) VALUES(11)");
+    }
+    const v12 = await c.query(
+      "SELECT 1 FROM qa.schema_migrations WHERE version=12",
+    );
+    if (!v12.rowCount) {
+      await c.query(`
+        ALTER TABLE qa.runs ADD COLUMN reasoning_effort text NOT NULL DEFAULT 'low';
+        INSERT INTO qa.schema_migrations(version) VALUES(12);
+      `);
     }
   });
 }

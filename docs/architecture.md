@@ -281,6 +281,7 @@ PostgreSQL 连接池每进程最多 12 个连接，默认 `search_path=qa,public
 | v9   | 用例版本号及历史表，旧用例回填首版，流程新增可空的 `case_version`，用例预留 Jira 关联                                                 |
 | v10  | Jira 需求、站点适配器和历史版本、发布记录，当前用例 Jira 外键，运行的 `executor_id` 和 `parent_run_id`                                |
 | v11  | 共享运行配置 `qa.runtime_settings`，初始化应用密钥及可导入的模型配置                                                                  |
+| v12  | `runs.reasoning_effort` 保存每次运行的思考深度，默认 `low`                                                                            |
 
 ### 4.2 资产关系
 
@@ -390,6 +391,8 @@ erDiagram
 
 一个会话固定所属项目、环境、关联用例及可选修复节点。顶栏切换环境时清掉当前 `chat` 参数。无指定用例时创建草稿用例，只有编排并保存其测试流程时才将该草稿转成正式用例。修复入口在未指定用例时，查找该环境下最新引用目标节点的流程，取它的用例 ID。会话与已发送消息按项目成员权限共享。编辑者和所有者可发送，归档的项目、环境或会话会阻止相关写入。 [chat.ts](../src/server/chat.ts) · [worker.ts](../src/server/worker.ts)
 
+输入区的「思考深度」按 GPT-6 Luna 提供 `none`、`low`、`medium`、`high`、`xhigh`、`max` 六档，打开页面时默认 `low`。后续发送沿用页面上的选择，用户可在发送下一条消息前调整。发送时将 `reasoningEffort` 随消息提交并纳入前端请求签名，同一事务把选定值写入 `runs.reasoning_effort`。 [OpenAI GPT-6 Luna 模型文档](https://developers.openai.com/api/docs/models/gpt-6-luna)
+
 ```mermaid
 sequenceDiagram
     participant U as 工作台
@@ -417,15 +420,15 @@ sequenceDiagram
     A-->>U: done 后关闭连接
 ```
 
-| 路由                                            | 输入与行为                                                                                                                                                |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/projects/:pid/chat/sessions`          | 必填 `environmentId`，可按 `q`、`archived` 筛选，`page` 从 1 起。按 `updated_at DESC,id` 排序，每页 30 条。                                               |
-| `POST /api/projects/:pid/chat/sessions`         | 接收 `environmentId`、可选 `caseId`、`repairNodeId` 和 `title`。标题最长 120 字符，默认为「新对话」。首次发送用文本或附件数量替换默认标题，取前 60 字符。 |
-| `GET /api/chat/sessions/:sid`                   | 用 `before` 消息序号向前翻页，最多取 50 条，返回时按时间正序。一起返回选中消息关联的附件、文件库引用、产物元数据和最近 25 条运行。                        |
-| `PATCH /api/chat/sessions/:sid`                 | 重命名、归档或恢复。会话存在 `queued` 或 `running` 任务时，归档返回 409。                                                                                 |
-| `POST /api/chat/sessions/:sid/messages`         | `clientId` 为 UUID，消息文字去首尾空白后最长 20,000 字符，可只发附件。按 `会话 × 作者 × clientId` 去重，同一请求返回已有 `runId`。                        |
-| `POST /api/chat/sessions/:sid/runs/:rid/cancel` | 检查会话写权限及运行归属，走统一取消入口。已持久化的消息、工具副作用和运行记录保留。                                                                      |
-| `GET /api/chat/sessions/:sid/runs/:rid/stream`  | 通过 `Last-Event-ID` 或 `after` 恢复，返回 `run`、`events`、`cursor`、`hasMore`。                                                                         |
+| 路由                                            | 输入与行为                                                                                                                                                              |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/projects/:pid/chat/sessions`          | 必填 `environmentId`，可按 `q`、`archived` 筛选，`page` 从 1 起。按 `updated_at DESC,id` 排序，每页 30 条。                                                             |
+| `POST /api/projects/:pid/chat/sessions`         | 接收 `environmentId`、可选 `caseId`、`repairNodeId` 和 `title`。标题最长 120 字符，默认为「新对话」。首次发送用文本或附件数量替换默认标题，取前 60 字符。               |
+| `GET /api/chat/sessions/:sid`                   | 用 `before` 消息序号向前翻页，最多取 50 条，返回时按时间正序。一起返回选中消息关联的附件、文件库引用、产物元数据和最近 25 条运行。                                      |
+| `PATCH /api/chat/sessions/:sid`                 | 重命名、归档或恢复。会话存在 `queued` 或 `running` 任务时，归档返回 409。                                                                                               |
+| `POST /api/chat/sessions/:sid/messages`         | `clientId` 为 UUID，消息文字去首尾空白后最长 20,000 字符，可只发附件。可选 `reasoningEffort` 默认为 `low`。按 `会话 × 作者 × clientId` 去重，同一请求返回已有 `runId`。 |
+| `POST /api/chat/sessions/:sid/runs/:rid/cancel` | 检查会话写权限及运行归属，走统一取消入口。已持久化的消息、工具副作用和运行记录保留。                                                                                    |
+| `GET /api/chat/sessions/:sid/runs/:rid/stream`  | 通过 `Last-Event-ID` 或 `after` 恢复，返回 `run`、`events`、`cursor`、`hasMore`。                                                                                       |
 
 发送事务先锁住活动项目和环境，再锁定会话。重复 `clientId` 检查先于活动运行冲突检查。新消息遇到同会话活动运行返回 409。`chat_messages` 的唯一约束同时保护 `run_id × role` 和会话内作者请求幂等。每条用户消息有实际 `author_id`，对应助手回复和独立运行，当前操作者记入 `runs.requested_by`，聊天任务记入 `executor_id`，因此浏览器、Jira 登录状态和个人记忆留在接收请求的本机执行器。 [chat.ts](../src/server/chat.ts) · [db.ts](../src/server/db.ts) · [executor.ts](../src/server/executor.ts)
 
@@ -503,7 +506,7 @@ flowchart TD
 | 角色与内容     | `system` 映射成 `developer`，`user` 内容转 `input_text`、`input_image`、`input_file`。恢复的文本助手消息映射为 `assistant`。                                                                                           |
 | 调用与工具结果 | 使用 `function` 工具声明和 JSON Schema，`strict:false`、`parallel_tool_calls:false`。解析最终 `function_call.arguments` 为对象，使用 `call_id` 将 `function_call_output` 配对，结果 JSON 包含 `isError` 和 `content`。 |
 | 续轮状态       | `store:false`，每次传当前完整输入序列。保留本轮原始 `response.output` 为 `responseItems`，包括可回传的加密推理项，在同一 Agent 运行的后续轮按原顺序附回。历史恢复使用数据库中的可见消息及运行摘要。                    |
-| 生成参数       | `stream:true`、`include:["reasoning.encrypted_content"]`、`reasoning.effort:"low"`、`max_output_tokens:10000`。                                                                                                        |
+| 生成参数       | `stream:true`、`include:["reasoning.encrypted_content"]`、`max_output_tokens:10000`。 `reasoning.effort` 取运行记录中的档位，同一运行的工具续轮使用同一个值。                                                          |
 | 可见增量       | `response.output_text.delta` 更新部分助手文本并产生 `update`。只在完成响应中取最终文本和完整工具调用，工具参数增量不执行。                                                                                             |
 | 终结与失败     | `response.completed/failed/incomplete` 映射为 `done`，失败和不完整结果标记错误。模型拒绝、无法解析参数、`error` 事件与缺终结的流触发失败。连接异常转换为中文网络或超时提示，释放 SDK 流。                              |
 | 凭据           | Worker 解密环境凭据后把键名交给模型，在浏览器中解析 `{{secret.key}}`，已知环境凭据及 API Key 从上下文、工具返回和可见事件中脱敏。测试文件内容参与调查时，相关工具的共享事件只保留必要元数据。                          |
@@ -940,7 +943,7 @@ stateDiagram-v2
 | 下载      | `GET /api/artifacts/:aid` 通过运行所属项目校验成员权限，返回相应 MIME 的附件及 `private, no-store`                                                  |
 | Jira 证据 | 回写工具以终态、事件完整、带流程快照及运行时用例关联为依据，生成报告评论并从 Jira 页面核验                                                          |
 
-模型任务的 `run_started` 记录模型名及 `llmRevision`。日志脱敏使用本轮模型 API Key 和当前环境的已知秘密。截图对密码字段遮罩，浏览器预览还遮罩已登记的秘密输入。业务页面、用户消息与附件的内容按项目权限保存，个人记忆工具正文单独留在账号 Git 仓库与模型上下文。详见[存储与数据模型](#data)和[项目知识与个人记忆](#memory)。
+模型任务的 `run_started` 记录模型名、`llmRevision` 和 `reasoningEffort`。日志脱敏使用本轮模型 API Key 和当前环境的已知秘密。截图对密码字段遮罩，浏览器预览还遮罩已登记的秘密输入。业务页面、用户消息与附件的内容按项目权限保存，个人记忆工具正文单独留在账号 Git 仓库与模型上下文。详见[存储与数据模型](#data)和[项目知识与个人记忆](#memory)。
 
 <a name="operations"></a>
 
@@ -1013,6 +1016,8 @@ REVOKE INSERT, UPDATE, DELETE ON qa.runtime_settings, qa.schema_migrations FROM 
 
 启动检查 schema 并读取应用密钥，随后开始监听和领取任务。默认地址为 `http://127.0.0.1:4310`。`GET /api/health` 可查看数据库与模型配置状态，`npm run check:llm` 验证当前数据库中的真实 Responses 配置，源码环境也可用 `npm run test:live`。未配置模型时可登录、管理资产和直接回放，模型任务给出配置提示。
 
+多个实例共用数据库时，协调将它们更新到支持 v12 的分发包。以管理员连接执行 `npm run db:migrate` 升级至 v12 后，既有运行记录的档位填为 `low`。服务启动时要求分发包支持数据库当前的 schema 版本。
+
 <a name="verification"></a>
 
 ## 13. 端到端验收
@@ -1074,7 +1079,7 @@ flowchart TB
 SELF_TEST_SHARED_DATABASE=looplab_shared_test npx tsx scripts/verify-shared-settings.ts
 ```
 
-脚本核对账号、项目和环境凭据跨实例共享，通过两处测试 Responses 地址验证三项配置动态切换，进行中的工具续轮使用原版本。结果位于 `.data/shared-settings-result.json`。
+脚本核对账号、项目和环境凭据跨实例共享，通过两处测试 Responses 地址验证三项配置动态切换。进行中的工具续轮使用原配置版本和本轮选择的 `xhigh`，省略 `reasoningEffort` 的新消息使用 `low`。结果位于 `.data/shared-settings-result.json`。
 
 ### 13.4 Jira 模拟站点与场内验收
 
