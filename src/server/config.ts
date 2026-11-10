@@ -4,7 +4,11 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import { MODEL } from "../openai/responses.js";
 
-const localPath = resolve(".env.local");
+const dataDirOverride = process.env.LOOPLAB_DATA_DIR;
+const dataDir = resolve(dataDirOverride || ".data");
+const localPath = dataDirOverride
+  ? resolve(dataDir, ".env.local")
+  : resolve(".env.local");
 const local = existsSync(localPath) ? parse(readFileSync(localPath)) : {};
 const env = { ...local, ...process.env };
 export const config = {
@@ -15,9 +19,11 @@ export const config = {
   secureCookie: env.COOKIE_SECURE === "true",
   demoEnabled: env.DEMO_TARGET_ENABLED === "true",
   browserChannel: env.PLAYWRIGHT_CHANNEL || undefined,
-  personalMemoryDir: resolve(
-    env.LOOPLAB_PERSONAL_MEMORY_DIR || ".data/personal-memory",
-  ),
+  dataDir,
+  personalMemoryDir: env.LOOPLAB_PERSONAL_MEMORY_DIR
+    ? resolve(env.LOOPLAB_PERSONAL_MEMORY_DIR)
+    : resolve(dataDir, "personal-memory"),
+  gitExecutable: env.LOOPLAB_GIT_EXECUTABLE || "git",
   runTimeoutMs: positiveInteger(
     "RUN_TIMEOUT_MS",
     env.RUN_TIMEOUT_MS,

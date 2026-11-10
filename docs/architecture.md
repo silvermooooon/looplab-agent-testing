@@ -373,13 +373,13 @@ erDiagram
 
 ### 4.4 持久化位置与共享范围
 
-| 位置                                                      | 数据                                                                                                                      | 服务实例之间的行为                                                            |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| PostgreSQL `qa`                                           | 用户和 session 摘要、共享项目资产、环境加密凭据、模型及应用配置、聊天、任务、执行证据、人工接管、实时预览及 Jira 阶段数据 | 连接同一数据库的实例可按权限访问同一记录，凭据和模型配置由同一数据库提供      |
-| `.data/personal-memory/` 或 `LOOPLAB_PERSONAL_MEMORY_DIR` | 每个账号一个本地 bare Git 仓库，保存个人记忆及历史                                                                        | 由接收任务的服务实例读取自己的目录，数据库承担账号识别                        |
-| `.data/jira-sessions/<用户 ID>/<项目 ID>/<站点哈希>.json` | 同一用户、项目与站点的 Playwright Jira 登录状态                                                                           | 仅 Jira 执行所在机器读取，按用户与项目隔离                                    |
-| 浏览器上下文和执行器内存                                  | 当前页面、元素与事件观察、会话执行器状态                                                                                  | 跟随活跃运行，浏览器关闭后释放                                                |
-| `dist/`、`web-dist/`、`.data/` 内验收产物                 | 编译结果、前端静态资源、验收脚本产生的结果和临时文件                                                                      | 本机生成，源码库忽略运行数据。独立导出脚本可在自己的运行目录生成 `artifacts/` |
+| 位置                                                                         | 数据                                                                                                                      | 服务实例之间的行为                                                            |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| PostgreSQL `qa`                                                              | 用户和 session 摘要、共享项目资产、环境加密凭据、模型及应用配置、聊天、任务、执行证据、人工接管、实时预览及 Jira 阶段数据 | 连接同一数据库的实例可按权限访问同一记录，凭据和模型配置由同一数据库提供      |
+| 数据目录下的 `personal-memory/`，可用 `LOOPLAB_PERSONAL_MEMORY_DIR` 单独指定 | 每个账号一个本地 bare Git 仓库，保存个人记忆及历史                                                                        | 由接收任务的服务实例读取自己的目录，数据库承担账号识别                        |
+| 数据目录下的 `jira-sessions/<用户 ID>/<项目 ID>/<站点哈希>.json`             | 同一用户、项目与站点的 Playwright Jira 登录状态                                                                           | 仅 Jira 执行所在机器读取，按用户与项目隔离                                    |
+| 浏览器上下文和执行器内存                                                     | 当前页面、元素与事件观察、会话执行器状态                                                                                  | 跟随活跃运行，浏览器关闭后释放                                                |
+| `dist/`、`web-dist/`、`.data/` 内验收产物                                    | 编译结果、前端静态资源、验收脚本产生的结果和临时文件                                                                      | 本机生成，源码库忽略运行数据。独立导出脚本可在自己的运行目录生成 `artifacts/` |
 
 <a name="chat"></a>
 
@@ -562,7 +562,7 @@ flowchart TB
 
 ### 7.2 个人记忆的 Git 写入协议
 
-默认目录为 `.data/personal-memory`，可用 `LOOPLAB_PERSONAL_MEMORY_DIR` 配置。仓库路径为目录下 `<SHA-256(账号 UUID)>.git`，分支 `refs/heads/main`，对象格式 SHA-1，文件 `MEMORY.md`。实现借鉴本机 Duet 的按账号隔离、固定 `MEMORY` 预读和 ref 并发校验，LoopLab 用 TypeScript 和本机 Git CLI 完成读写。每个仓库使用本地磁盘，实例间共享 PostgreSQL 时仍各读自己的目录。 [personal-memory.ts](../src/server/personal-memory.ts) · [config.ts](../src/server/config.ts)
+仓库存放在数据目录的 `personal-memory/` 下，可用 `LOOPLAB_PERSONAL_MEMORY_DIR` 配置。仓库路径为目录下 `<SHA-256(账号 UUID)>.git`，分支 `refs/heads/main`，对象格式 SHA-1，文件 `MEMORY.md`。实现借鉴本机 Duet 的按账号隔离、固定 `MEMORY` 预读和 ref 并发校验，LoopLab 用 TypeScript 和 Git CLI 完成读写，便携包调用随包的 Git。每个仓库使用本地磁盘，实例间共享 PostgreSQL 时仍各读自己的目录。 [personal-memory.ts](../src/server/personal-memory.ts) · [config.ts](../src/server/config.ts)
 
 ```mermaid
 sequenceDiagram
@@ -830,7 +830,7 @@ flowchart TB
 | 状态操作   | `statusOpen`, `statusOptions`, `statusConfirm`             |
 | 补充导航   | `allowedOrigins` 最多 10 个完整 HTTP(S) origin，值不带路径 |
 
-Jira 浏览器与被测应用浏览器分别启动，切换目标或修订时关闭旧现场。Jira 会话没有被测环境的凭据和变量。该会话允许浏览器发起跨 origin 的 HTTP(S) 顶层导航，并跟踪登录新窗口，显式 DSL 导航仍检查目标 origin 或适配器允许列表，跨域内嵌登录框需配置对应 origin。业务读写的 `ensureTicket` 每次检查原站点、页面显示的 Ticket key 和登录/拒绝提示。出现登录表单、已配置的认证元素或登录跳转时用第 8 节的人工接管，用户继续后返回主窗口并再次访问原 Ticket；仍需登录则重新请求，拒绝访问或编号不符则报错。成功核对后保存本机 Playwright `storageState`，目录为 `.data/jira-sessions/<用户 ID>/<项目 ID>/`，文件名为 Jira origin 的 SHA-256 加 `.json`，临时文件权限 `0600` 后原子重命名。换用户、项目、站点或本机目录会有独立登录状态。预览和接管入口仍执行项目成员权限校验。
+Jira 浏览器与被测应用浏览器分别启动，切换目标或修订时关闭旧现场。Jira 会话没有被测环境的凭据和变量。该会话允许浏览器发起跨 origin 的 HTTP(S) 顶层导航，并跟踪登录新窗口，显式 DSL 导航仍检查目标 origin 或适配器允许列表，跨域内嵌登录框需配置对应 origin。业务读写的 `ensureTicket` 每次检查原站点、页面显示的 Ticket key 和登录/拒绝提示。出现登录表单、已配置的认证元素或登录跳转时用第 8 节的人工接管，用户继续后返回主窗口并再次访问原 Ticket；仍需登录则重新请求，拒绝访问或编号不符则报错。成功核对后保存本机 Playwright `storageState`，位置为数据目录下的 `jira-sessions/<用户 ID>/<项目 ID>/`，文件名为 Jira origin 的 SHA-256 加 `.json`，临时文件权限 `0600` 后原子重命名。换用户、项目、站点或本机目录会有独立登录状态。预览和接管入口仍执行项目成员权限校验。
 
 字段采集各截取最多 60,000 字符，标题必需。缺失描述、验收条件或状态会在工具返回中标记，评论为空是允许的。选择器失效时先用 `jira_inspect` 读页面和当前配置，必要时调查菜单，确认后只更新相关选择器，随后重试对应阶段。页面文字是输入资料，发布和转状态由当前用户的请求授权。内网部署的页面结构、富文本编辑器和工作流差异由站点适配承接。
 
@@ -951,9 +951,9 @@ stateDiagram-v2
 
 ### 12.1 启动配置与数据库配置
 
-需要 Node.js 22+、npm、可访问的 PostgreSQL、Playwright Chromium 或已安装的 Chrome。个人记忆需要服务进程可执行 `git` 并可写记忆目录。浏览器和 Jira 网络访问由执行器所在机器提供。依赖版本见 [package-lock.json](../package-lock.json)，启动配置见 [config.ts](../src/server/config.ts) 和 [.env.example](../.env.example)。
+源码和标准分发包需要 Node.js 22+、npm、Playwright Chromium 或已安装的 Chrome。个人记忆需要服务进程可执行 Git 并可写记忆目录。macOS Apple Silicon 便携包内置 Node.js、Git 和 Playwright 无头 Chromium。所有实例需要可访问的 PostgreSQL，浏览器和 Jira 网络访问由执行器所在机器提供。依赖版本见 [package-lock.json](../package-lock.json)，启动配置见 [config.ts](../src/server/config.ts) 和 [.env.example](../.env.example)。
 
-安装者只需配置 `DATABASE_URL`。环境变量优先于工作目录中的 `.env.local`。连接相同数据库的实例共享项目、运行证据和服务端配置，各自执行本地浏览器。管理员先初始化数据库 schema，再使用数据库维护权限配置模型。
+安装者只需配置 `DATABASE_URL`。环境变量优先于 `.env.local`。源码和标准包从工作目录读取配置，便携包从用户数据目录读取。连接相同数据库的实例共享项目、运行证据和服务端配置，各自执行本地浏览器。管理员先初始化数据库 schema，再使用数据库维护权限配置模型。
 
 | 配置                                       | 来源和使用时机                                                                                                                 |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
@@ -964,7 +964,9 @@ stateDiagram-v2
 | `COOKIE_SECURE`                            | 值为 `true` 时设置安全 cookie，HTTPS 部署开启                                                                                  |
 | `PLAYWRIGHT_CHANNEL`                       | 留空用 Playwright Chromium，设 `chrome` 使用安装的 Google Chrome                                                               |
 | `RUN_TIMEOUT_MS`                           | 默认 600,000 ms，整数 1–2,147,483,647                                                                                          |
-| `LOOPLAB_PERSONAL_MEMORY_DIR`              | 默认为工作目录下 `.data/personal-memory`，可配置持久化目录                                                                     |
+| `LOOPLAB_DATA_DIR`                         | 进程环境指定数据目录。设置后从该目录读取 `.env.local`，其中保存记忆与 Jira 会话。源码与标准包使用工作目录下的 `.data` 存数据   |
+| `LOOPLAB_PERSONAL_MEMORY_DIR`              | 可单独指定记忆目录，默认为数据目录下的 `personal-memory`                                                                       |
+| `LOOPLAB_GIT_EXECUTABLE`                   | Git 命令路径。便携启动器设置为包内 Git，源码和标准包默认在 `PATH` 查找 `git`                                                   |
 | `DEMO_TARGET_ENABLED`                      | 值为 `true` 时启用验收用 `/demo` 页面和 API，默认关闭                                                                          |
 
 ### 12.2 管理员初始化与更新
@@ -1017,6 +1019,21 @@ REVOKE INSERT, UPDATE, DELETE ON qa.runtime_settings, qa.schema_migrations FROM 
 启动检查 schema 并读取应用密钥，随后开始监听和领取任务。默认地址为 `http://127.0.0.1:4310`。`GET /api/health` 可查看数据库与模型配置状态，`npm run check:llm` 验证当前数据库中的真实 Responses 配置，源码环境也可用 `npm run test:live`。未配置模型时可登录、管理资产和直接回放，模型任务给出配置提示。
 
 多个实例共用数据库时，协调将它们更新到支持 v12 的分发包。以管理员连接执行 `npm run db:migrate` 升级至 v12 后，既有运行记录的档位填为 `low`。服务启动时要求分发包支持数据库当前的 schema 版本。
+
+<a name="portable"></a>
+
+### 12.4 macOS Apple Silicon 便携分发
+
+在 Apple Silicon Mac 上安装 Xcode Command Line Tools 和项目构建依赖后，执行 `npm run package:portable`。构建核对官方 Node.js 24.22.1 归档和 Git 2.56.0 源码的 SHA-256。按锁文件安装生产依赖，按 Playwright 版本下载无头 Chromium，输出 `.data/release/looplab-<版本>-darwin-arm64.zip`。包内含 Git 对应源码、许可证和构建参数。运行依赖在制作包时下载。 [打包脚本](../scripts/package-portable.ts) · [Git 构建](../scripts/package-portable-git.ts)
+
+| 操作       | 步骤                                                                                                                                                                                                                |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 首次配置   | 解包后双击 `Start LoopLab.command`。首次启动创建 `~/Library/Application Support/LoopLab/.env.local`，填入管理员提供的 `DATABASE_URL`。管理员也可在启动器旁提供 `.env.local`，首次运行时将其作为用户配置的初始副本。 |
+| 日常启动   | 双击 `Start LoopLab.command`，终端保持服务运行，监听成功后打开系统默认浏览器。按 `Ctrl+C` 停止。命令行可设置 `LOOPLAB_OPEN_BROWSER=0` 跳过打开浏览器。                                                              |
+| 数据与升级 | 用户目录存放配置、个人记忆 Git 仓库和 Jira 会话。替换应用目录即可升级。同一台机器上需要分隔多个实例时，为每个实例设置不同的 `LOOPLAB_DATA_DIR` 和端口。                                                             |
+| 管理命令   | 在终端执行 `./Start\ LoopLab.command db:migrate`、`configure:llm` 或 `check:llm`，可继续传入对应参数。初始化和配置更新使用管理员数据库连接。                                                                        |
+
+接收者使用包内运行时和生产依赖，测试执行器默认启动包内浏览器。配置模板随包分发，真实连接信息由管理员单独提供。构建命令产出本地验收用 ZIP。面向启用 Gatekeeper 的下载分发时，发布流程使用 Developer ID 签名与公证。 [Apple 分发文档](https://developer.apple.com/developer-id/)
 
 <a name="verification"></a>
 
@@ -1108,6 +1125,10 @@ SELF_TEST_SHARED_DATABASE=looplab_shared_test npx tsx scripts/verify-shared-sett
 | 人工接管与取消 | 在接管或队列等待时请求继续、取消                                      | 接管和取消事件、最后状态及测试组汇总一致         |
 
 保留 `test/` 下的既有行为测试和 `npm test` 入口。新增及回归验收使用平台端到端脚本。构建模板位于 [ci-workflow.template.yml](ci-workflow.template.yml)，可用于 Node.js 24 的 `npm ci` 与生产构建。真实模型与浏览器验收按上述方式配置目标实例和凭据。
+
+### 13.6 macOS 便携包验收
+
+从 ZIP 分别解出工作台和被测实例，各自配置独立的验收数据库、端口和用户数据目录。在空 `PATH` 和空用户主目录的进程环境中，从解包目录之外运行启动器。检查首次配置的权限、随包迁移命令、健康接口与静态资源。用工作台运行保存的流程，调用包内 Chromium 登录被测实例，在账号页读取并修改个人记忆，核对运行状态和截图。停止被测实例并从另一份解包目录用原数据目录启动，核对当前记忆和包内 Git 读取到的两个版本。
 
 <a name="tradeoffs"></a>
 

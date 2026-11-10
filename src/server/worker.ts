@@ -278,7 +278,7 @@ async function perform(
               allowAuthRedirects: true,
               trackPopups: true,
               storageStatePath: resolve(
-                ".data",
+                config.dataDir,
                 "jira-sessions",
                 run.requested_by,
                 run.project_id,

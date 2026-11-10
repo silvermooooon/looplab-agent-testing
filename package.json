@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.web.json && vite build && node dist/scripts/compress-web.js",
     "package": "npm run build && node dist/scripts/package-release.js",
+    "package:portable": "npm run package && node dist/scripts/package-portable.js",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.web.json",
     "test": "npm run build:server && node --test dist/test/*.test.js",
     "demo": "npm run build && node dist/examples/offline.js",

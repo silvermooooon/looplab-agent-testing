@@ -137,7 +137,7 @@ function git(
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(
-      "git",
+      config.gitExecutable,
       ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgSign=false", ...args],
       {
         timeout: 10000,
