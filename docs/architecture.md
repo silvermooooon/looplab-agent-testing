@@ -1035,6 +1035,75 @@ REVOKE INSERT, UPDATE, DELETE ON qa.runtime_settings, qa.schema_migrations FROM 
 
 接收者使用包内运行时和生产依赖，测试执行器默认启动包内浏览器。配置模板随包分发，真实连接信息由管理员单独提供。构建命令产出本地验收用 ZIP。面向启用 Gatekeeper 的下载分发时，发布流程使用 Developer ID 签名与公证。 [Apple 分发文档](https://developer.apple.com/developer-id/)
 
+<a name="portable-windows"></a>
+
+### 12.5 Windows x64 便携分发
+
+内网 Agent 在 Windows 11 x64 构建并验收。Windows 复用标准分发包中的编译结果和静态资源，在目标平台安装锁定的生产依赖与 Playwright 无头 Chromium，并装入 Windows Node.js 和完整 MinGit 目录。构建机需要 Node.js 24 和 Windows 自带的 `tar.exe`。打包目录、启动器和 ZIP 放在 `%TEMP%`，交付件移到内网分发位置。真实连接配置通过受控渠道单独提供。 [Windows tar](https://learn.microsoft.com/en-us/windows/tar) · [Playwright 浏览器](https://playwright.dev/docs/browsers#chromium-headless-shell)
+
+下载 `node-v24.22.1-win-x64.zip` 和 `MinGit-2.56.0.4-64-bit.zip` 到用户的 `Downloads` 目录，按各发布页核对 SHA-256。内网构建可从获准的镜像取得对应版本的二进制、npm 锁定依赖及 Playwright 浏览器。随 MinGit 分发时保留其许可证并提供对应源码。 [Node.js 归档](https://nodejs.org/download/release/v24.22.1/) · [MinGit 发布及校验值](https://github.com/git-for-windows/git/releases/tag/v2.56.0.windows.4) · [Git 许可证](https://github.com/git/git/blob/master/COPYING)
+
+在 Windows 的项目根目录打开 PowerShell，逐步执行。
+
+```powershell
+npm.cmd ci
+npm.cmd run package
+
+$version = (Get-Content .\package.json -Raw | ConvertFrom-Json).version
+$work = Join-Path $env:TEMP ("LoopLab-" + (Get-Date -Format yyyyMMdd-HHmmss))
+$name = "looplab-$version-win-x64"
+$app = Join-Path $work $name
+$downloads = Join-Path $env:USERPROFILE "Downloads"
+
+New-Item -ItemType Directory -Path $app -Force | Out-Null
+tar.exe -xzf ".data\release\looplab-$version.tgz" -C $app
+
+Expand-Archive "$downloads\node-v24.22.1-win-x64.zip" $work
+New-Item -ItemType Directory -Path "$app\runtime\node" -Force | Out-Null
+$node = Join-Path $work "node-v24.22.1-win-x64"
+Copy-Item "$node\node.exe","$node\LICENSE" "$app\runtime\node"
+Expand-Archive "$downloads\MinGit-2.56.0.4-64-bit.zip" "$app\runtime\git"
+
+Push-Location $app
+npm.cmd ci --omit=dev --no-audit --no-fund
+$env:PLAYWRIGHT_BROWSERS_PATH = "$app\runtime\browsers"
+& .\runtime\node\node.exe .\node_modules\playwright\cli.js install --only-shell chromium
+Pop-Location
+```
+
+在临时目录 `$app` 下创建 `Start LoopLab.cmd`。启动器固定工作目录以加载 `web-dist`，使用包内 Git 和浏览器，并将配置、记忆与 Jira 登录状态放在 `%LOCALAPPDATA%\LoopLab`。
+
+```bat
+@echo off
+setlocal
+cd /d "%~dp0" || exit /b 1
+set "LOOPLAB_DATA_DIR=%LOCALAPPDATA%\LoopLab"
+set "LOOPLAB_GIT_EXECUTABLE=%CD%\runtime\git\cmd\git.exe"
+set "PLAYWRIGHT_BROWSERS_PATH=%CD%\runtime\browsers"
+set "LOOPLAB_OPEN_BROWSER=0"
+
+if not exist "%LOOPLAB_DATA_DIR%\.env.local" (
+  if not exist "%LOOPLAB_DATA_DIR%" mkdir "%LOOPLAB_DATA_DIR%"
+  copy ".env.example" "%LOOPLAB_DATA_DIR%\.env.local" >nul
+  echo Edit DATABASE_URL in "%LOOPLAB_DATA_DIR%\.env.local" and restart.
+  pause
+  exit /b 1
+)
+
+"runtime\node\node.exe" "dist\src\server\main.js"
+pause
+```
+
+回到同一个 PowerShell 窗口，打包临时应用目录。
+
+```powershell
+$zip = Join-Path $work "$name.zip"
+tar.exe -caf $zip -C $work $name
+$zip
+```
+
+接收者将 ZIP 解到本机目录，双击 `Start LoopLab.cmd` 生成配置，在 `%LOCALAPPDATA%\LoopLab\.env.local` 填写管理员提供的 `DATABASE_URL`，重新启动并打开 `http://127.0.0.1:4310`。管理员按 [§12.2](#122-管理员初始化与更新) 初始化或升级共享数据库并维护模型配置。使用包内浏览器时，`PLAYWRIGHT_CHANNEL` 留空。替换应用目录升级时沿用用户数据目录。交付前按 [Windows 验收](#verification-portable-windows) 检查。
+
 <a name="verification"></a>
 
 ## 13. 端到端验收
@@ -1130,6 +1199,20 @@ SELF_TEST_SHARED_DATABASE=looplab_shared_test npx tsx scripts/verify-shared-sett
 
 从 ZIP 分别解出工作台和被测实例，各自配置独立的验收数据库、端口和用户数据目录。在空 `PATH` 和空用户主目录的进程环境中，从解包目录之外运行启动器。检查首次配置的权限、随包迁移命令、健康接口与静态资源。用工作台运行保存的流程，调用包内 Chromium 登录被测实例，在账号页读取并修改个人记忆，核对运行状态和截图。停止被测实例并从另一份解包目录用原数据目录启动，核对当前记忆和包内 Git 读取到的两个版本。
 
+<a name="verification-portable-windows"></a>
+
+### 13.7 Windows 便携包验收
+
+Windows 打包步骤由外部 Agent 核对项目入口和依赖布局。内网 Agent 在未安装 Node.js、npm 和 Git 的 Windows x64 机器上完成实机验收，使用隔离数据库和测试账号。
+
+| 验收项     | 通过条件                                                                                  |
+| ---------- | ----------------------------------------------------------------------------------------- |
+| 解包与启动 | 启动器创建用户配置，配置数据库后健康接口和工作台页面可访问。运行进程使用包内 `node.exe`。 |
+| 浏览器     | 用包内 Chromium 执行已保存的浏览器流程，核对终态和截图。                                  |
+| 个人记忆   | 用工作台写入两版记忆，核对包内 MinGit 生成的两次提交。                                    |
+| 替换应用   | 停止服务，从另一处解包路径启动，保留原用户配置，并读到两版记忆。                          |
+| 交付       | 核对 ZIP 包含运行时、锁定依赖和配置模板。运行包、构建日志与验收证据存放于内网分发位置。   |
+
 <a name="tradeoffs"></a>
 
 ## 14. 设计取舍
@@ -1205,6 +1288,8 @@ Jira 业务读写继续通过本机 Playwright，以现场浏览器身份操作�
 ### 15.3 移交与完成条件
 
 外部 Agent 提交可共享的代码、模拟夹具约定、执行命令与本地验收范围。内网 Agent 接手后先在本文更新实际接入契约和变更边界，再实现并运行[本地回归](#verification)与本节的真实场景。交付时在本文标明哪一项在模拟环境验证、哪一项已在内网验证，并关联提交和可共享的脱敏证据。企业配置值、凭据、登录状态和原始内网资料保存在内网受控位置。两种环境的验收各自有明确结果。
+
+桌面分发优先由内网 Agent 按 [Windows x64 打包](#portable-windows) 组装并完成 [Windows 实机验收](#verification-portable-windows)。macOS Apple Silicon 使用已验收的 [便携构建](#portable)。
 
 <a name="maintenance"></a>
 
