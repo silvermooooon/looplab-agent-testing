@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.web.json && vite build && node dist/scripts/compress-web.js",
+    "package": "npm run build && node dist/scripts/package-release.js",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.web.json",
     "test": "npm run build:server && node --test dist/test/*.test.js",
     "demo": "npm run build && node dist/examples/offline.js",
@@ -16,6 +17,9 @@
     "dev": "tsx watch src/server/main.ts",
     "dev:web": "vite",
     "migrate": "tsx scripts/migrate.ts",
+    "db:migrate": "node dist/scripts/migrate.js",
+    "configure:llm": "node dist/scripts/configure-llm.js",
+    "check:llm": "node dist/scripts/live-model.js",
     "test:live": "tsx scripts/live-model.ts",
     "test:acceptance": "tsx scripts/acceptance.ts",
     "setup:local": "tsx scripts/init-local.ts",

@@ -213,7 +213,7 @@ flowchart TB
 
 用例标题最多 120 字符，说明最多 20,000 字符。无用例的聊天可创建草稿，普通用例列表过滤 `is_draft`，正式保存时记录草稿的原版本和新版本。用例读取可指定 `version`，历史返回原题名、说明和 Jira 关联，并另外返回当前版本号。关联 Jira 时检查 Ticket 属于当前项目。流程保存时固定当前 `case_version`，执行时按该版本加载用例。`case_version` 为空时读取当前用例。更新节点或用例会追加版本，重编排或修复会生成新流程。具体约束见[测试流程与浏览器](#browser)。 [cases.ts](../src/server/cases.ts) · [repository.ts](../src/server/repository.ts) · [worker.ts](../src/server/worker.ts)
 
-环境凭据以 `SHA-256(APP_SECRET)` 派生密钥，使用 AES-256-GCM、随机 12 字节 IV 与认证标签写入数据库。更新环境时可整体提供 `secrets`，界面通常提交 `secretChanges.set` 和 `secretChanges.remove`。服务端在事务中锁定凭据行，合并指定修改并重加密。项目成员只通过读接口取得键名，Agent 在流程中引用 `{{secret.key}}`，执行器运行时展开。共享数据库的实例需使用相同 `APP_SECRET`。已知凭据值会在日志或快照的对应处理入口替换成占位文本。
+环境凭据以 `SHA-256(app_secret)` 派生密钥，使用 AES-256-GCM、随机 12 字节 IV 与认证标签写入数据库。更新环境时可整体提供 `secrets`，界面通常提交 `secretChanges.set` 和 `secretChanges.remove`。服务端在事务中锁定凭据行，合并指定修改并重加密。项目成员只通过读接口取得键名，Agent 在流程中引用 `{{secret.key}}`，执行器运行时展开。共享数据库的实例启动时读取同一个 `app_secret`。已知凭据值会在日志或快照的对应处理入口替换成占位文本。
 
 环境复制在一个事务内建立新环境，复制变量，要求填写新名称和基础地址。凭据复制需显式启用 `copySecrets`，缺省创建空凭据。复制先为目标环境创建节点版本并建立原 revision ID 到新 revision ID 的映射，再复制流程并替换其中的 revision ID，最后复制测试组并重映射流程 ID。节点身份、用例、知识和文件继续使用项目级记录，历史运行和会话留在原环境。
 
@@ -266,7 +266,7 @@ flowchart TB
 
 ### 4.1 数据库与迁移
 
-PostgreSQL 连接池每进程最多 12 个连接，默认 `search_path=qa,public`。访问通过参数化 SQL，`query` 返回行数组，`one` 返回首行，`transaction` 在专用连接中执行 BEGIN、COMMIT 或 ROLLBACK，最后归还连接。服务启动时先校验配置和执行迁移，再监听 HTTP 和启动执行器。迁移在同一事务中持有 `pg_advisory_xact_lock(hashtext('agent-test-platform:migrations'))`，依次检查 `qa.schema_migrations`。按未执行版本追加 DDL 与版本记录，失败整体回滚。修改 schema 时新增迁移版本，已应用迁移是旧库升级的历史基线。参见 [db.ts](../src/server/db.ts)、[jira-db.ts](../src/server/jira-db.ts)、[main.ts](../src/server/main.ts)。
+PostgreSQL 连接池每进程最多 12 个连接，默认 `search_path=qa,public`。访问通过参数化 SQL，`query` 返回行数组，`one` 返回首行，`transaction` 在专用连接中执行 BEGIN、COMMIT 或 ROLLBACK，最后归还连接。服务启动时校验数据库连接和 schema 版本，版本落后时执行迁移，随后读取应用密钥再启动 HTTP 和执行器。迁移在同一事务中持有 `pg_advisory_xact_lock(hashtext('agent-test-platform:migrations'))`，依次检查 `qa.schema_migrations`。按未执行版本追加 DDL 与版本记录，失败整体回滚。修改 schema 时新增迁移版本，已应用迁移是旧库升级的历史基线。参见 [db.ts](../src/server/db.ts)、[jira-db.ts](../src/server/jira-db.ts)、[main.ts](../src/server/main.ts)。
 
 | 迁移 | 内容                                                                                                                                  |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -280,6 +280,7 @@ PostgreSQL 连接池每进程最多 12 个连接，默认 `search_path=qa,public
 | v8   | 实时预览请求和最新画面                                                                                                                |
 | v9   | 用例版本号及历史表，旧用例回填首版，流程新增可空的 `case_version`，用例预留 Jira 关联                                                 |
 | v10  | Jira 需求、站点适配器和历史版本、发布记录，当前用例 Jira 外键，运行的 `executor_id` 和 `parent_run_id`                                |
+| v11  | 共享运行配置 `qa.runtime_settings`，初始化应用密钥及可导入的模型配置                                                                  |
 
 ### 4.2 资产关系
 
@@ -371,13 +372,13 @@ erDiagram
 
 ### 4.4 持久化位置与共享范围
 
-| 位置                                                      | 数据                                                                                                      | 服务实例之间的行为                                                            |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| PostgreSQL `qa`                                           | 用户和 session 摘要、共享项目资产、环境加密凭据、聊天、任务、执行证据、人工接管、实时预览及 Jira 阶段数据 | 连接同一数据库的实例可按权限访问同一记录，凭据解密需要相同 `APP_SECRET`       |
-| `.data/personal-memory/` 或 `LOOPLAB_PERSONAL_MEMORY_DIR` | 每个账号一个本地 bare Git 仓库，保存个人记忆及历史                                                        | 由接收任务的服务实例读取自己的目录，数据库承担账号识别                        |
-| `.data/jira-sessions/<用户 ID>/<项目 ID>/<站点哈希>.json` | 同一用户、项目与站点的 Playwright Jira 登录状态                                                           | 仅 Jira 执行所在机器读取，按用户与项目隔离                                    |
-| 浏览器上下文和执行器内存                                  | 当前页面、元素与事件观察、会话执行器状态                                                                  | 跟随活跃运行，浏览器关闭后释放                                                |
-| `dist/`、`web-dist/`、`.data/` 内验收产物                 | 编译结果、前端静态资源、验收脚本产生的结果和临时文件                                                      | 本机生成，源码库忽略运行数据。独立导出脚本可在自己的运行目录生成 `artifacts/` |
+| 位置                                                      | 数据                                                                                                                      | 服务实例之间的行为                                                            |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| PostgreSQL `qa`                                           | 用户和 session 摘要、共享项目资产、环境加密凭据、模型及应用配置、聊天、任务、执行证据、人工接管、实时预览及 Jira 阶段数据 | 连接同一数据库的实例可按权限访问同一记录，凭据和模型配置由同一数据库提供      |
+| `.data/personal-memory/` 或 `LOOPLAB_PERSONAL_MEMORY_DIR` | 每个账号一个本地 bare Git 仓库，保存个人记忆及历史                                                                        | 由接收任务的服务实例读取自己的目录，数据库承担账号识别                        |
+| `.data/jira-sessions/<用户 ID>/<项目 ID>/<站点哈希>.json` | 同一用户、项目与站点的 Playwright Jira 登录状态                                                                           | 仅 Jira 执行所在机器读取，按用户与项目隔离                                    |
+| 浏览器上下文和执行器内存                                  | 当前页面、元素与事件观察、会话执行器状态                                                                                  | 跟随活跃运行，浏览器关闭后释放                                                |
+| `dist/`、`web-dist/`、`.data/` 内验收产物                 | 编译结果、前端静态资源、验收脚本产生的结果和临时文件                                                                      | 本机生成，源码库忽略运行数据。独立导出脚本可在自己的运行目录生成 `artifacts/` |
 
 <a name="chat"></a>
 
@@ -495,7 +496,7 @@ flowchart TD
 
 ### 6.2 Responses 请求、流事件与工具回填
 
-本地 `openai` SDK 负责 Responses 传输，默认模型为 `gpt-6-luna`，可用 `OPENAI_MODEL` 指定同协议模型或网关别名。`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` 分别取进程变量、`.env.local`、`OPENAI_ENV_FILE` 中首个非空值。地址缺省为 `https://api.openai.com/v1`，凭据缺失、地址协议非法会阻止服务启动。请求的 SDK 超时为 120,000 ms，`maxRetries=1` 由 SDK 处理适用的重试。任务总时限与取消由 Worker 管理，单次模型超时与任务总时限分别计算。 [config.ts](../src/server/config.ts) · [responses.ts](../src/openai/responses.ts)
+本地 `openai` SDK 负责 Responses 传输。每次模型任务开始时从 `qa.runtime_settings` 读取地址、密钥、模型和版本，任务内包括工具续轮均使用该次快照。更新后的配置供后续任务读取。纯回放不需要模型配置。请求的 SDK 超时为 120,000 ms，`maxRetries=1` 由 SDK 处理适用的重试。Worker 单独管理任务总时限和取消。 [platform-settings.ts](../src/server/platform-settings.ts) · [responses.ts](../src/openai/responses.ts)
 
 | 项目           | 实现                                                                                                                                                                                                                   |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -936,73 +937,78 @@ stateDiagram-v2
 | 下载      | `GET /api/artifacts/:aid` 通过运行所属项目校验成员权限，返回相应 MIME 的附件及 `private, no-store`                                                  |
 | Jira 证据 | 回写工具以终态、事件完整、带流程快照及运行时用例关联为依据，生成报告评论并从 Jira 页面核验                                                          |
 
-日志脱敏覆盖模型 API Key 和当前环境的已知秘密。截图对密码字段遮罩，浏览器预览还遮罩已登记的秘密输入。业务页面、用户消息与附件的内容按项目权限保存，个人记忆工具正文单独留在账号 Git 仓库与模型上下文。详见[存储与数据模型](#data)和[项目知识与个人记忆](#memory)。
+模型任务的 `run_started` 记录模型名及 `llmRevision`。日志脱敏使用本轮模型 API Key 和当前环境的已知秘密。截图对密码字段遮罩，浏览器预览还遮罩已登记的秘密输入。业务页面、用户消息与附件的内容按项目权限保存，个人记忆工具正文单独留在账号 Git 仓库与模型上下文。详见[存储与数据模型](#data)和[项目知识与个人记忆](#memory)。
 
 <a name="operations"></a>
 
 ## 12. 配置与部署
 
-### 12.1 配置来源与前置条件
+### 12.1 启动配置与数据库配置
 
-需要 Node.js 22+、npm、可访问的 PostgreSQL、Playwright Chromium 或已安装的 Chrome。个人记忆需要服务进程可执行 `git` 并可写记忆目录。浏览器和 Jira 网络访问由执行器所在机器提供。依赖的精确版本在 [package-lock.json](../package-lock.json)，配置定义在 [config.ts](../src/server/config.ts) 和 [.env.example](../.env.example)。
+需要 Node.js 22+、npm、可访问的 PostgreSQL、Playwright Chromium 或已安装的 Chrome。个人记忆需要服务进程可执行 `git` 并可写记忆目录。浏览器和 Jira 网络访问由执行器所在机器提供。依赖版本见 [package-lock.json](../package-lock.json)，启动配置见 [config.ts](../src/server/config.ts) 和 [.env.example](../.env.example)。
 
-除 AI 三项外，配置读取进程环境与工作目录的 `.env.local`，进程环境优先。AI 三项分别取非空的进程变量、`.env.local`、`OPENAI_ENV_FILE`，按此顺序选择。只在前面都为空时使用表中默认值。外部文件只为 AI 三项补值。
+安装者只需配置 `DATABASE_URL`。环境变量优先于工作目录中的 `.env.local`。连接相同数据库的实例共享项目、运行证据和服务端配置，各自执行本地浏览器。管理员先初始化数据库 schema，再使用数据库维护权限配置模型。
 
-| AI 配置           | 用途                                       | 默认值                      |
-| ----------------- | ------------------------------------------ | --------------------------- |
-| `OPENAI_BASE_URL` | Responses API 基础地址，要求 HTTP 或 HTTPS | `https://api.openai.com/v1` |
-| `OPENAI_API_KEY`  | 服务端请求鉴权                             | 必填，由三层配置提供        |
-| `OPENAI_MODEL`    | Responses 请求的模型名                     | `gpt-6-luna`                |
+| 配置                                       | 来源和使用时机                                                                                                                 |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`                             | 实例启动时从进程环境或 `.env.local` 读取，连接共享 PostgreSQL                                                                  |
+| `app_secret`                               | 共享数据库 `qa.runtime_settings` 的初始化密钥，启动时读取，用于环境凭据加密与 cookie 签名。已有数据库升级时保留原 `APP_SECRET` |
+| `llm_base_url`、`llm_api_key`、`llm_model` | 管理员在数据库中一起更新。每条需要模型的任务开始时读取一次，后续任务使用更新后的配置                                           |
+| `HOST`、`PORT`                             | 本机监听，默认 `127.0.0.1:4310`，端口整数范围 1–65535                                                                          |
+| `COOKIE_SECURE`                            | 值为 `true` 时设置安全 cookie，HTTPS 部署开启                                                                                  |
+| `PLAYWRIGHT_CHANNEL`                       | 留空用 Playwright Chromium，设 `chrome` 使用安装的 Google Chrome                                                               |
+| `RUN_TIMEOUT_MS`                           | 默认 600,000 ms，整数 1–2,147,483,647                                                                                          |
+| `LOOPLAB_PERSONAL_MEMORY_DIR`              | 默认为工作目录下 `.data/personal-memory`，可配置持久化目录                                                                     |
+| `DEMO_TARGET_ENABLED`                      | 值为 `true` 时启用验收用 `/demo` 页面和 API，默认关闭                                                                          |
 
-| 其他配置                      | 用途与默认值                                                                                    |
-| ----------------------------- | ----------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                | 必填，专用 PostgreSQL 数据库，账号需有权限创建和维护 `qa` schema                                |
-| `APP_SECRET`                  | 必填，至少 32 字符，用于 cookie 插件及 AES-256-GCM 环境凭据密钥派生。共享数据库的服务使用相同值 |
-| `OPENAI_ENV_FILE`             | 可选，补充未设置的 AI 配置的 dotenv 文件                                                        |
-| `HOST`                        | 默认 `127.0.0.1`，按部署网络范围设置                                                            |
-| `PORT`                        | 默认 `4310`，整数 1–65535                                                                       |
-| `COOKIE_SECURE`               | 值为 `true` 时设置安全 cookie。默认关闭，HTTPS 部署开启                                         |
-| `PLAYWRIGHT_CHANNEL`          | 留空用 Playwright Chromium，设 `chrome` 使用安装的 Google Chrome                                |
-| `RUN_TIMEOUT_MS`              | 默认 600,000 ms，整数 1–2,147,483,647                                                           |
-| `LOOPLAB_PERSONAL_MEMORY_DIR` | 默认为工作目录下 `.data/personal-memory`，可配置持久化目录                                      |
-| `DEMO_TARGET_ENABLED`         | 值为 `true` 时启用验收用 `/demo` 页面和 API，默认关闭                                           |
+### 12.2 管理员初始化与更新
 
-### 12.2 初始化、运行与检查
+数据库维护账号负责 schema 迁移与模型配置写入。首次建立 `qa.runtime_settings` 时，空数据库生成应用密钥。已有环境凭据的库使用原 `APP_SECRET` 完成初始化，再由每个实例从数据库读取同一个密钥。此前的 AI 环境变量可以导入初始记录。运行中的模型配置以数据库为准。
 
-```bash
-npm ci
-cp .env.example .env.local
-npx playwright install chromium
-npm run build
-npm start
-```
-
-在启动前填写 `.env.local` 中的专用数据库、`APP_SECRET` 和 AI 三项配置。使用 Docker PostgreSQL 时，可在尚未创建 `.env.local` 的目录运行 `npm run setup:local -- <postgres-container-name>`，由脚本新建 `looplab` 角色和数据库并生成配置文件。已存在的配置和数据库对象由操作者继续管理。安装的 Chrome 已配置为浏览器渠道时，可直接使用该渠道。
-
-启动依次执行配置校验、PostgreSQL 迁移、Fastify 监听、Worker 领取。可用 `npm run migrate` 单独迁移数据库。默认工作台位于 `http://127.0.0.1:4310`。公开的 `GET /api/health` 返回服务、数据库和当前配置的模型名。要检查模型实际响应，使用 `npm run test:live` 执行真实工具往返。
+管理员在构建目录或分发包目录运行 `npm run db:migrate` 初始化 schema，再通过 `npm run configure:llm` 从标准输入提交 `{baseUrl, apiKey, model}`。也可用 `npm run configure:llm -- --from-env` 从本地进程变量、`.env.local` 或 `OPENAI_ENV_FILE` 导入现有配置。导入时分别取非空的进程变量、`.env.local`、`OPENAI_ENV_FILE`，地址和模型缺省值为 `https://api.openai.com/v1` 与 `gpt-6-luna`。一次写入同时更新三项和配置版本，管理命令只返回模型与版本信息。已有配置的数据库可继续从管理员连接执行该命令，无需分发新包。直接在数据库维护时也应在一条 SQL 或一个事务更新三项及版本，保留应用密钥。
 
 ```mermaid
-flowchart TB
-    Config["进程环境和 .env.local"] --> Validate["启动校验"]
-    Validate --> Migrate["qa schema 迁移"]
-    Migrate --> Listen["Fastify 监听"]
-    Listen --> Ready["工作台与 HTTP 接口"]
-    Listen --> Queue["Worker 扫描队列"]
-    Ready --> Health["健康检查"]
-    Queue --> Proof["模型调用与浏览器执行"]
+sequenceDiagram
+    participant A as 数据库管理员
+    participant D as 共享 PostgreSQL
+    participant W as 用户本机 Worker
+    participant M as Responses API
+    W->>D: 读取应用密钥并启动
+    W->>D: 新任务读取 LLM 配置版本
+    W->>M: 使用本轮地址、密钥和模型
+    A->>D: 更新三项配置与版本
+    W->>M: 本轮继续使用已读取的版本
+    W->>D: 下一任务重新读取
+    W->>M: 使用新的配置版本
 ```
 
-| 运行方式           | 命令与配置                                                                                                                                 |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 本地生产构建       | `npm run build` 编译后端到 `dist/`，检查前端 TypeScript，Vite 输出到 `web-dist/`，压缩脚本生成 Brotli 和 gzip；`npm start` 启动            |
-| 本地开发           | 分别执行 `npm run dev` 和 `npm run dev:web`。Vite 默认监听 4311，代理 `/api` 与 `/demo/api` 到 4310                                        |
-| 静态路由           | 存在 `web-dist/` 时由 Fastify 提供静态资源和 SPA 入口。哈希 assets 用一年 immutable 缓存，HTML 重新验证。未知 API 和 assets 请求仍返回 404 |
-| 同一服务的团队部署 | 成员使用同一个服务和 PostgreSQL，浏览器、账号记忆和 Jira 登录状态位于该服务机器                                                            |
-| 多个本地执行器     | 各实例使用相同 `DATABASE_URL` 和 `APP_SECRET`。各机器的环境地址须对可能领取任务的执行器有一致含义。聊天仍使用接收请求的本机执行器          |
-| HTTPS 服务         | 按网络范围设置 `HOST`，由反向代理提供 HTTPS，配置 `COOKIE_SECURE=true`，为 SSE 保持流式传输                                                |
-| 持久数据           | PostgreSQL 保存团队资产及证据，本机目录保存个人记忆 Git 仓库和 Jira 浏览器会话。备份和迁移服务时分别管理这些位置                           |
+已完成 schema 初始化后，实例可以用单独的运行角色启动。该角色对 `qa` 中的业务表具备运行所需的读写权限，对 `runtime_settings` 与 `schema_migrations` 只授予读取权限。管理员连接承担迁移和配置写入。直接连接数据库的执行器属于受信任的团队边界，其持有者可用该连接访问运行所需的数据和密钥。数据库配置及密钥只通过服务端读取，HTTP 会话与健康检查仅返回模型状态。
 
-开发配置、密码、API 密钥、浏览器登录状态、运行验收产物和生成资源放在被 Git 忽略的位置。可提交的配置示例为 [.env.example](../.env.example)。初始化、压缩和入口实现分别见 [init-local.ts](../scripts/init-local.ts)、[compress-web.ts](../scripts/compress-web.ts) 和 [main.ts](../src/server/main.ts)。
+以下 SQL 用于已初始化 `qa` schema 的数据库。运行角色由管理员创建，需能连接该数据库，且与表的维护角色分开。后续迁移新建表时核对该角色的权限。
+
+```sql
+GRANT USAGE ON SCHEMA qa TO looplab_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA qa TO looplab_runtime;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA qa TO looplab_runtime;
+REVOKE INSERT, UPDATE, DELETE ON qa.runtime_settings, qa.schema_migrations FROM looplab_runtime;
+```
+
+### 12.3 构建、打包与启动
+
+| 运行方式         | 命令与配置                                                                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 源码安装         | `npm ci`，填入 `.env.local`，安装 Playwright Chromium 后 `npm run build`、`npm start`                                                             |
+| 产出分发包       | `npm run package` 构建后端与前端，用 `tar` 生成 `.data/release/looplab-<版本>.tgz`。连接配置由管理员在分发时单独提供                              |
+| 启动分发包       | 解包到空目录，在目录内 `npm ci --omit=dev`，配置 `DATABASE_URL`，执行 `npx playwright install chromium` 或选择已安装的 Chrome，再执行 `npm start` |
+| 本地数据库初始化 | 在尚未创建 `.env.local` 的源码目录执行 `npm run setup:local -- <postgres-container-name>`，新建角色与数据库并生成连接配置                         |
+| 本地开发         | `npm run dev` 与 `npm run dev:web`，Vite 监听 4311，代理 `/api` 与 `/demo/api` 到 4310                                                            |
+| 多个本地执行器   | 使用同一 PostgreSQL。各机器的环境地址应能被可能领取任务的执行器访问。聊天固定由接收请求的本机执行器处理                                           |
+| HTTPS 服务       | 按网络范围设置 `HOST`，反向代理提供 HTTPS，配置 `COOKIE_SECURE=true` 并保持 SSE 流式传输                                                          |
+| 持久数据         | PostgreSQL 保存团队资产、配置及证据，本机目录保存个人记忆和 Jira 浏览器会话，分别备份                                                             |
+
+`npm run build` 输出 `dist/` 与 `web-dist/`，并预生成 Brotli 和 gzip。Fastify 提供静态资源与 SPA 入口，哈希 assets 使用一年 immutable 缓存，HTML 重新验证，未知 API 和 assets 请求返回 404。运行包包含构建结果、运行命令、锁定依赖和配置模板。数据库连接串、LLM 密钥、浏览器会话、个人记忆和本地验收产物通过独立配置与数据目录管理。
+
+启动检查 schema 并读取应用密钥，随后开始监听和领取任务。默认地址为 `http://127.0.0.1:4310`。`GET /api/health` 可查看数据库与模型配置状态，`npm run check:llm` 验证当前数据库中的真实 Responses 配置，源码环境也可用 `npm run test:live`。未配置模型时可登录、管理资产和直接回放，模型任务给出配置提示。
 
 <a name="verification"></a>
 
@@ -1057,7 +1063,17 @@ flowchart TB
 
 基础自举通过后，可运行 `npm run verify:self -- --replay` 或 `npm run verify:self-chat -- --replay`，重放本地结果文件记录的流程。目标聊天仍会向模型发请求。查看失败任务的运行报告时，先定位失败步骤和页面，再从共享节点发起修复并重新验证。隔离的目标数据支持反复生成或重复执行会写入目标站点的用例。
 
-### 13.3 Jira 模拟站点与场内验收
+### 13.3 双实例共享配置验收
+
+将两份服务分别启动在 `4320` 和 `4321`，使用不同工作目录和同一个隔离数据库。数据库名使用 `looplab_shared_test` 或带下划线后缀的名称。用管理员数据库连接运行下列脚本，并将 `SELF_TEST_SHARED_DATABASE` 指向实际隔离库名。也可用 `SELF_TEST_SHARED_FIRST_URL` 与 `SELF_TEST_SHARED_SECOND_URL` 指定两处不同的本地 HTTP 地址。
+
+```bash
+SELF_TEST_SHARED_DATABASE=looplab_shared_test npx tsx scripts/verify-shared-settings.ts
+```
+
+脚本核对账号、项目和环境凭据跨实例共享，通过两处测试 Responses 地址验证三项配置动态切换，进行中的工具续轮使用原版本。结果位于 `.data/shared-settings-result.json`。
+
+### 13.4 Jira 模拟站点与场内验收
 
 | 本地端点                     | 夹具约定                                                                    |
 | ---------------------------- | --------------------------------------------------------------------------- |
@@ -1072,16 +1088,16 @@ flowchart TB
 
 模拟站点负责复现登录、页面改动和结果回读。内网 Agent 按[站点接入与验收顺序](#handoff-jira)在可访问真实 Jira 的执行器上验证。
 
-### 13.4 故障注入与构建检查
+### 13.5 故障注入与构建检查
 
-| 故障           | 验收动作                                                                     | 预期证据                                         |
-| -------------- | ---------------------------------------------------------------------------- | ------------------------------------------------ |
-| AI 地址不可达  | 在独立实例用进程变量指定不可达的 `OPENAI_BASE_URL`，执行需要模型的生成或对话 | 运行失败或对话显示模型错误，脚本按实际终态退出   |
-| 数据库不可达   | 令测试实例指向不可达的 `DATABASE_URL` 并启动                                 | 初始化失败，日志提示连接或迁移                   |
-| 目标站点不可达 | 使用独立环境地址或自举目标地址测试                                           | 导航或自举失败，运行事件记录错误                 |
-| 选择器错误     | 以测试数据生成错误节点版本或 Jira 适配器                                     | 报告定位失败步骤，从页面调查修复，再以新版本回放 |
-| 版本竞争       | 用旧用例版本或个人记忆 SHA 提交修改                                          | 读取到冲突，最新记录保持完整                     |
-| 人工接管与取消 | 在接管或队列等待时请求继续、取消                                             | 接管和取消事件、最后状态及测试组汇总一致         |
+| 故障           | 验收动作                                                              | 预期证据                                         |
+| -------------- | --------------------------------------------------------------------- | ------------------------------------------------ |
+| AI 地址不可达  | 在独立实例将隔离库的 LLM 地址改为不可达地址，执行需要模型的生成或对话 | 运行失败或对话显示模型错误，脚本按实际终态退出   |
+| 数据库不可达   | 令测试实例指向不可达的 `DATABASE_URL` 并启动                          | 初始化失败，日志提示连接或迁移                   |
+| 目标站点不可达 | 使用独立环境地址或自举目标地址测试                                    | 导航或自举失败，运行事件记录错误                 |
+| 选择器错误     | 以测试数据生成错误节点版本或 Jira 适配器                              | 报告定位失败步骤，从页面调查修复，再以新版本回放 |
+| 版本竞争       | 用旧用例版本或个人记忆 SHA 提交修改                                   | 读取到冲突，最新记录保持完整                     |
+| 人工接管与取消 | 在接管或队列等待时请求继续、取消                                      | 接管和取消事件、最后状态及测试组汇总一致         |
 
 保留 `test/` 下的既有行为测试和 `npm test` 入口。新增及回归验收使用平台端到端脚本。构建模板位于 [ci-workflow.template.yml](ci-workflow.template.yml)，可用于 Node.js 24 的 `npm ci` 与生产构建。真实模型与浏览器验收按上述方式配置目标实例和凭据。
 

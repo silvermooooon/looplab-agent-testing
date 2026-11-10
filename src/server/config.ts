@@ -1,33 +1,15 @@
 import { readFileSync, existsSync } from "node:fs";
 import { parse } from "dotenv";
 import { resolve } from "node:path";
+import { z } from "zod";
 import { MODEL } from "../openai/responses.js";
 
 const localPath = resolve(".env.local");
 const local = existsSync(localPath) ? parse(readFileSync(localPath)) : {};
 const env = { ...local, ...process.env };
-const inherited =
-  env.OPENAI_ENV_FILE && existsSync(env.OPENAI_ENV_FILE)
-    ? parse(readFileSync(env.OPENAI_ENV_FILE))
-    : {};
 export const config = {
   databaseUrl: env.DATABASE_URL ?? "",
   appSecret: env.APP_SECRET ?? "",
-  apiKey:
-    process.env.OPENAI_API_KEY ||
-    local.OPENAI_API_KEY ||
-    inherited.OPENAI_API_KEY ||
-    "",
-  baseUrl:
-    process.env.OPENAI_BASE_URL ||
-    local.OPENAI_BASE_URL ||
-    inherited.OPENAI_BASE_URL ||
-    "https://api.openai.com/v1",
-  model:
-    process.env.OPENAI_MODEL ||
-    local.OPENAI_MODEL ||
-    inherited.OPENAI_MODEL ||
-    MODEL,
   port: positiveInteger("PORT", env.PORT, 4310, 65535),
   host: env.HOST || "127.0.0.1",
   secureCookie: env.COOKIE_SECURE === "true",
@@ -45,18 +27,47 @@ export const config = {
 };
 export function validateConfig() {
   if (!config.databaseUrl) throw new Error("DATABASE_URL is required");
-  if (config.appSecret.length < 32)
-    throw new Error("APP_SECRET must contain at least 32 characters");
-  if (!config.apiKey)
-    throw new Error("OPENAI_API_KEY or OPENAI_ENV_FILE is required");
-  let url: URL;
-  try {
-    url = new URL(config.baseUrl);
-  } catch {
-    throw new Error("Invalid OPENAI_BASE_URL");
-  }
-  if (!["http:", "https:"].includes(url.protocol))
-    throw new Error("Invalid OPENAI_BASE_URL");
+}
+
+export const llmSettingsInput = z
+  .object({
+    baseUrl: z
+      .string()
+      .trim()
+      .max(2000)
+      .refine((value) => {
+        if (!URL.canParse(value)) return false;
+        const url = new URL(value);
+        return (
+          ["http:", "https:"].includes(url.protocol) &&
+          !url.username &&
+          !url.password
+        );
+      }),
+    apiKey: z.string().trim().min(1).max(10000),
+    model: z.string().trim().min(1).max(200),
+  })
+  .strict();
+
+export function legacyLlmSettings() {
+  const inherited =
+    env.OPENAI_ENV_FILE && existsSync(env.OPENAI_ENV_FILE)
+      ? parse(readFileSync(env.OPENAI_ENV_FILE))
+      : {};
+  return {
+    baseUrl:
+      env.OPENAI_BASE_URL ||
+      local.OPENAI_BASE_URL ||
+      inherited.OPENAI_BASE_URL ||
+      "https://api.openai.com/v1",
+    apiKey:
+      env.OPENAI_API_KEY ||
+      local.OPENAI_API_KEY ||
+      inherited.OPENAI_API_KEY ||
+      "",
+    model:
+      env.OPENAI_MODEL || local.OPENAI_MODEL || inherited.OPENAI_MODEL || MODEL,
+  };
 }
 
 function positiveInteger(

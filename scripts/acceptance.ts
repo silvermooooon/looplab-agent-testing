@@ -62,7 +62,7 @@ await c.request("/auth/register", "POST", outsider);
 check("Three independent user accounts and cookie sessions");
 const project = await a.request("/projects", "POST", {
   name: "Agent Chat · 验收项目",
-  description: "真实 GPT 6 Luna 生成 · 团队共享节点 · 多环境版本隔离",
+  description: "真实 Responses 模型生成 · 团队共享节点 · 多环境版本隔离",
 });
 const pid = project.id;
 await a.request(`/projects/${pid}/members`, "POST", {
@@ -110,8 +110,11 @@ const generated = await a.request(`/projects/${pid}/runs`, "POST", {
 });
 const generatedResult = await waitRun(a, generated.id);
 assert.equal(generatedResult.run.status, "passed", generatedResult.run.error);
+const llm = generatedResult.events.find(
+  (e: any) => e.kind === "run_started",
+).data;
 check(
-  "Real GPT 6 Luna explores UI, saves reusable nodes, and fresh-browser replay passes",
+  "The configured Responses model explores UI, saves reusable nodes, and fresh-browser replay passes",
 );
 let shared = await b.request(`/projects/${pid}?environmentId=${env.id}`);
 assert.ok(shared.nodes.length >= 3, "Expected modular nodes");
@@ -308,7 +311,8 @@ await writeFile(
     {
       checkedAt: new Date().toISOString(),
       projectId: pid,
-      model: config.model,
+      model: llm.model,
+      llmRevision: llm.llmRevision,
       checks,
       runIds: {
         generated: generated.id,

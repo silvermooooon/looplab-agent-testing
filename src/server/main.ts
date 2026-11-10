@@ -1,10 +1,9 @@
-import { config, validateConfig } from "./config.js";
-import { migrate, pool } from "./db.js";
+import { config } from "./config.js";
+import { prepareDatabase, pool } from "./db.js";
 import { buildApp } from "./app.js";
 import { startWorker, stopWorker } from "./worker.js";
-validateConfig();
 try {
-  await migrate();
+  await prepareDatabase();
 } catch (error) {
   const detail = error instanceof Error ? error.message : "未知错误";
   throw new Error(

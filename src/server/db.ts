@@ -1,6 +1,15 @@
 import pg from "pg";
-import { config } from "./config.js";
+import { randomBytes } from "node:crypto";
+import {
+  config,
+  legacyLlmSettings,
+  llmSettingsInput,
+  validateConfig,
+} from "./config.js";
 import { migrateJira } from "./jira-db.js";
+import { decryptSecrets } from "./security.js";
+
+const schemaVersion = 11;
 export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
   max: 12,
@@ -35,6 +44,7 @@ export async function transaction<T>(
   }
 }
 export async function migrate() {
+  validateConfig();
   await transaction(async (c) => {
     await c.query(
       "SELECT pg_advisory_xact_lock(hashtext('agent-test-platform:migrations'))",
@@ -168,5 +178,76 @@ export async function migrate() {
       INSERT INTO qa.schema_migrations(version) VALUES(9);
     `);
     await migrateJira(c);
+    const v11 = await c.query(
+      "SELECT 1 FROM qa.schema_migrations WHERE version=11",
+    );
+    if (!v11.rowCount) {
+      const existing = (
+        await c.query("SELECT secrets_encrypted FROM environments LIMIT 1")
+      ).rows[0];
+      const appSecret = config.appSecret || randomBytes(32).toString("hex");
+      if (appSecret.length < 32)
+        throw new Error("初始化共享应用密钥需要至少 32 字符的 APP_SECRET");
+      if (existing) {
+        if (!config.appSecret)
+          throw new Error("升级已有环境凭据的数据库需要原 APP_SECRET");
+        try {
+          decryptSecrets(existing.secrets_encrypted);
+        } catch {
+          throw new Error("原 APP_SECRET 无法解密已有环境凭据，已停止迁移");
+        }
+      }
+      const local = legacyLlmSettings();
+      const settings = local.apiKey
+        ? llmSettingsInput.safeParse(local)
+        : undefined;
+      if (settings && !settings.success)
+        throw new Error("原 LLM 配置格式不正确，请核对后重新初始化");
+      await c.query(`
+        CREATE TABLE qa.runtime_settings(
+          id smallint PRIMARY KEY CHECK(id=1),
+          app_secret text NOT NULL CHECK(char_length(app_secret)>=32),
+          llm_base_url text,
+          llm_api_key text,
+          llm_model text,
+          llm_revision integer NOT NULL DEFAULT 0,
+          llm_updated_at timestamptz,
+          CHECK(num_nonnulls(llm_base_url,llm_api_key,llm_model) IN (0,3))
+        );
+      `);
+      const initial = settings?.data;
+      await c.query(
+        `INSERT INTO qa.runtime_settings
+        (id,app_secret,llm_base_url,llm_api_key,llm_model,llm_revision,llm_updated_at)
+        VALUES(1,$1,$2,$3,$4,$5,CASE WHEN $5=0 THEN NULL ELSE now() END)`,
+        [
+          appSecret,
+          initial?.baseUrl ?? null,
+          initial?.apiKey ?? null,
+          initial?.model ?? null,
+          initial ? 1 : 0,
+        ],
+      );
+      await c.query("INSERT INTO qa.schema_migrations(version) VALUES(11)");
+    }
   });
+}
+
+export async function prepareDatabase() {
+  validateConfig();
+  const schema = await one<{ version: number | null }>(
+    "SELECT max(version) AS version FROM qa.schema_migrations",
+  ).catch((error: { code?: string }) => {
+    if (error.code === "42P01" || error.code === "3F000") return undefined;
+    throw error;
+  });
+  const version = schema?.version ?? 0;
+  if (version > schemaVersion)
+    throw new Error("数据库 schema 版本高于当前服务，请更新分发包");
+  if (version < schemaVersion) await migrate();
+  const runtime = await one<{ app_secret: string }>(
+    "SELECT app_secret FROM qa.runtime_settings WHERE id=1",
+  );
+  if (!runtime) throw new Error("共享数据库缺少运行配置，请联系数据库管理员");
+  config.appSecret = runtime.app_secret;
 }

@@ -1,11 +1,16 @@
 import { Agent } from "../src/runtime/index.js";
 import { createResponsesStream } from "../src/openai/responses.js";
-import { config } from "../src/server/config.js";
+import { pool, prepareDatabase } from "../src/server/db.js";
+import { getLlmSettings } from "../src/server/platform-settings.js";
+
+const { baseUrl, apiKey, model, revision } = await prepareDatabase()
+  .then(() => getLlmSettings())
+  .finally(() => pool.end());
 const agent = new Agent({
   streamFn: createResponsesStream({
-    apiKey: config.apiKey,
-    baseURL: config.baseUrl,
-    model: config.model,
+    apiKey,
+    baseURL: baseUrl,
+    model,
   }),
   maxTurns: 5,
   systemPrompt:
@@ -32,11 +37,12 @@ if (
   !agent.state.messages.some((m) => m.role === "toolResult")
 )
   throw new Error(
-    `Live model check failed: ${agent.state.errorMessage ?? agent.state.lastEndReason}`,
+    `Live model check failed: ${String(agent.state.errorMessage ?? agent.state.lastEndReason).replaceAll(apiKey, "[REDACTED]")}`,
   );
 console.log(
   JSON.stringify({
-    model: config.model,
+    model,
+    llmRevision: revision,
     status: "passed",
     messages: agent.state.messages.length,
     toolCalls: agent.state.messages.filter((m) => m.role === "toolResult")

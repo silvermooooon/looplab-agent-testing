@@ -31,17 +31,12 @@ try {
 }
 writeFileSync(
   ".env.local",
-  readFileSync(".env.example", "utf8")
-    .replace(
-      /^DATABASE_URL=.*$/m,
-      `DATABASE_URL=postgresql://looplab:${password}@127.0.0.1:5432/looplab`,
-    )
-    .replace(
-      /^APP_SECRET=.*$/m,
-      `APP_SECRET=${randomBytes(32).toString("hex")}`,
-    ),
+  readFileSync(".env.example", "utf8").replace(
+    /^DATABASE_URL=.*$/m,
+    `DATABASE_URL=postgresql://looplab:${password}@127.0.0.1:5432/looplab`,
+  ),
   { mode: 0o600 },
 );
 console.log(
-  "Created looplab database and local configuration. Configure the OpenAI key or OPENAI_ENV_FILE before starting.",
+  "Created looplab database and local configuration. Initialize shared model settings with npm run configure:llm after building.",
 );

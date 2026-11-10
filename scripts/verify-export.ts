@@ -2,11 +2,12 @@ import { readFile, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { config } from "../src/server/config.js";
-import { pool, one } from "../src/server/db.js";
+import { pool, one, prepareDatabase } from "../src/server/db.js";
 import { resolveSteps } from "../src/server/repository.js";
 import { flowSchema } from "../src/testing/spec.js";
 import { exportScript } from "../src/testing/export.js";
 import { decryptSecrets } from "../src/server/security.js";
+await prepareDatabase();
 const result = JSON.parse(
   await readFile(".data/acceptance-result.json", "utf8"),
 );

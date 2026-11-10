@@ -10,6 +10,7 @@ import {
   decryptSecrets,
 } from "./security.js";
 import { config } from "./config.js";
+import { getLlmApiKey, getLlmStatus } from "./platform-settings.js";
 import {
   HttpError,
   requireMember,
@@ -82,6 +83,7 @@ export async function routes(app: FastifyInstance) {
   const path = (r: FastifyRequest, key: string) =>
     id.parse((r.params as Record<string, string>)[key]);
   async function session(reply: any, user: any) {
+    const { model } = await getLlmStatus();
     const token = randomBytes(32).toString("hex");
     await query(
       "INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '7 days')",
@@ -94,7 +96,10 @@ export async function routes(app: FastifyInstance) {
       secure: config.secureCookie,
       maxAge: 604800,
     });
-    return { id: user.id, email: user.email, name: user.name };
+    return {
+      user: { id: user.id, email: user.email, name: user.name },
+      model,
+    };
   }
   app.addHook("preHandler", async (r) => {
     if (!r.url.startsWith("/api/")) return;
@@ -119,14 +124,19 @@ export async function routes(app: FastifyInstance) {
     )
       uid(r);
   });
-  app.get("/api/health", async () => ({
-    ok: true,
-    model: config.model,
-    database: !!(await one("SELECT 1")),
-  }));
+  app.get("/api/health", async () => {
+    const { model, configured, revision } = await getLlmStatus();
+    return {
+      ok: true,
+      database: true,
+      model,
+      modelConfigured: configured,
+      llmRevision: revision,
+    };
+  });
   app.get("/api/auth/me", async (r) => ({
     user: r.currentUser ?? null,
-    model: config.model,
+    model: (await getLlmStatus()).model,
   }));
   app.post(
     "/api/auth/register",
@@ -147,7 +157,7 @@ export async function routes(app: FastifyInstance) {
         "INSERT INTO users(email,name,password_hash) VALUES($1,$2,$3) RETURNING id,email,name",
         [body.email, body.name, hashPassword(body.password)],
       );
-      return { user: await session(reply, user), model: config.model };
+      return session(reply, user);
     },
   );
   app.post(
@@ -168,7 +178,7 @@ export async function routes(app: FastifyInstance) {
       ]);
       if (!user || !verifyPassword(body.password, user.password_hash))
         throw new HttpError(401, "邮箱或密码错误");
-      return { user: await session(reply, user), model: config.model };
+      return session(reply, user);
     },
   );
   app.post("/api/auth/logout", async (r, reply) => {
@@ -193,7 +203,8 @@ export async function routes(app: FastifyInstance) {
       })
       .strict()
       .parse(r.body);
-    if (config.apiKey && input.content.includes(config.apiKey))
+    const apiKey = await getLlmApiKey();
+    if (apiKey && input.content.includes(apiKey))
       throw new HttpError(400, "个人记忆不能保存 API 凭据");
     reply.header("Cache-Control", "private, no-store");
     return writePersonalMemory(uid(r), input);

@@ -184,8 +184,8 @@ export function createResponsesStream(options: {
       if (error instanceof OpenAI.APIConnectionError)
         error.message =
           error instanceof OpenAI.APIConnectionTimeoutError
-            ? "AI 接口请求超时，请检查 OPENAI_BASE_URL 和网络连接"
-            : "AI 接口连接失败，请检查 OPENAI_BASE_URL 和网络连接";
+            ? "AI 接口请求超时，请检查数据库中的 LLM 地址和网络连接"
+            : "AI 接口连接失败，请检查数据库中的 LLM 地址和网络连接";
       throw error;
     } finally {
       stream?.controller.abort();
