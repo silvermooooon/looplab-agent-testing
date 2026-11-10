@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
+import { chromium, expect } from "playwright/test";
 import { config } from "../src/server/config.js";
 
 const controllerUrl = `http://127.0.0.1:${config.port}`;
@@ -250,8 +251,18 @@ const responseResult = await waitRun(target, responseRun.id);
 assert.equal(responseResult.run.status, "passed", responseResult.run.error);
 console.log("PASS response watcher catches an event during a later step");
 
-const fixtureServer = createServer((_request, reply) => {
+const fixtureServer = createServer((request, reply) => {
   reply.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+  if (request.url === "/keyboard") {
+    reply.end(`<!doctype html><title>接管键盘验收</title>
+      <form onsubmit="event.preventDefault(); document.querySelector('#submitted').textContent='Enter 已提交'">
+        <input id="first" aria-label="第一项" style="position:absolute;left:40px;top:40px;width:200px">
+        <input id="second" type="password" aria-label="密码" style="position:absolute;left:40px;top:80px;width:200px">
+        <button type="submit" style="position:absolute;left:40px;top:120px">提交</button>
+      </form>
+      <p id="submitted" style="position:absolute;left:40px;top:150px">等待提交</p>`);
+    return;
+  }
   reply.end(
     `<!doctype html><title>Dialog fixture</title><button id="open" onclick="alert('需要人工确认');document.querySelector('#result').textContent='已确认'">打开浏览器弹框</button><button id="start" onclick="setTimeout(()=>document.querySelector('#block').hidden=false,700)">开始异步操作</button><button id="network" onclick="setTimeout(()=>fetch('/fixture-response'),700)">发送请求</button><div id="result">尚未确认</div><div id="block" hidden style="position:fixed;top:100px;left:20px"><button onclick="document.querySelector('#done').hidden=false;document.querySelector('#block').hidden=true">处理并继续</button></div><div id="done" hidden>已完成</div>`,
   );
@@ -259,6 +270,7 @@ const fixtureServer = createServer((_request, reply) => {
 await new Promise<void>((resolve) =>
   fixtureServer.listen(0, "127.0.0.1", resolve),
 );
+let keyboardRunId: string;
 try {
   const address = fixtureServer.address();
   assert.ok(address && typeof address !== "string");
@@ -266,11 +278,97 @@ try {
     `/projects/${project.id}/environments`,
     "POST",
     {
-      name: "浏览器弹框",
+      name: "人工接管验收网页",
       baseUrl: `http://127.0.0.1:${address.port}`,
       variables: {},
     },
   );
+  const keyboardFlow = await makeFlow(
+    target,
+    project.id,
+    fixtureEnvironment.id,
+    "takeover_keyboard",
+    [
+      { action: "navigate", url: "/keyboard" },
+      { action: "pauseForHuman", message: "请直接操作接管画面中的表单" },
+      { action: "assertValue", selector: "#first", value: "a中x粘贴😀" },
+      { action: "assertValue", selector: "#second", value: "next" },
+      { action: "assertText", selector: "#submitted", text: "Enter 已提交" },
+    ],
+  );
+  const keyboardRun = await start(
+    target,
+    project.id,
+    fixtureEnvironment.id,
+    keyboardFlow,
+  );
+  keyboardRunId = keyboardRun.id;
+  await waitIntervention(target, keyboardRunId);
+
+  const browser = await chromium.launch({ channel: config.browserChannel });
+  try {
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 960 },
+      permissions: ["clipboard-read", "clipboard-write"],
+    });
+    const page = await context.newPage();
+    await page.goto(
+      `${targetUrl}/projects/${project.id}/runs?env=${fixtureEnvironment.id}&run=${keyboardRunId}`,
+    );
+    await page.locator("#email").fill(user.email);
+    await page.locator("#password").fill(user.password);
+    await page.getByRole("button", { name: "登录", exact: true }).click();
+    const panel = page.getByLabel("人工接管", { exact: true });
+    const image = panel.getByRole("img", { name: "接管画面" });
+    await expect(image).toBeVisible({ timeout: 30000 });
+    const position = await image.evaluate(async (element) => {
+      const img = element as HTMLImageElement;
+      await img.decode();
+      return {
+        x: (100 * img.clientWidth) / img.naturalWidth,
+        y: (51 * img.clientHeight) / img.naturalHeight,
+      };
+    });
+    await image.click({ position });
+    const capture = panel.getByLabel("接管浏览器键盘");
+    await expect(capture).toBeFocused();
+    await page.keyboard.type("abx");
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("Backspace");
+    const ime = await context.newCDPSession(page);
+    await ime.send("Input.imeSetComposition", {
+      text: "zhong",
+      selectionStart: 5,
+      selectionEnd: 5,
+    });
+    await ime.send("Input.imeSetComposition", {
+      text: "中",
+      selectionStart: 1,
+      selectionEnd: 1,
+    });
+    await ime.send("Input.insertText", { text: "中" });
+    await page.keyboard.press("End");
+    await page.evaluate(() => navigator.clipboard.writeText("粘贴😀"));
+    await page.keyboard.press("ControlOrMeta+V");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("replace");
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.insertText("next");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Shift+Escape");
+    await expect(capture).not.toBeFocused();
+    await page.keyboard.type("ignored");
+    await panel.getByRole("button", { name: "继续运行" }).click();
+    await expect(panel).toBeHidden({ timeout: 30000 });
+    const result = await waitRun(target, keyboardRunId);
+    assert.equal(result.run.status, "passed", result.run.error);
+    console.log(
+      "PASS live takeover receives direct text, IME, paste, editing keys, Tab and Enter in order",
+    );
+  } finally {
+    await browser.close();
+  }
+
   const dialogFlow = await makeFlow(
     target,
     project.id,
@@ -559,6 +657,7 @@ await writeFile(
       modalRunId: modalRun.id,
       outerRunId: outerRun.id,
       responseRunId: responseRun.id,
+      keyboardRunId,
       suiteRunId: batch.id,
     },
     null,

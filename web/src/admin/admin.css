@@ -211,11 +211,34 @@ a {
   background: #fffdf5;
 }
 .intervention-viewport {
+  position: relative;
   overflow: hidden;
   width: 100%;
   border: 1px solid #d9e0e5;
   border-radius: 8px;
   background: #e9eef2;
+}
+.intervention-viewport:focus-within {
+  outline: 2px solid #1677ff;
+  outline-offset: 2px;
+}
+.intervention-keyboard {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  font-size: 16px;
+  resize: none;
+  pointer-events: none;
+}
+.intervention-keyboard-status {
+  margin-bottom: 6px;
+  color: #415264;
+  font-size: 13px;
 }
 .intervention-viewport img {
   display: block;

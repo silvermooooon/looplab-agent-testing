@@ -152,6 +152,7 @@ export default function RunDetail({
       />
       {active && intervention.data?.active && intervention.data.info && (
         <InterventionPanel
+          key={id}
           id={id}
           canEdit={canEdit}
           info={intervention.data.info}

@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, App, Button, Input, Space, Typography } from "antd";
 import { api } from "./client";
+import InterventionKeyboard, {
+  type KeyboardStep,
+} from "./InterventionKeyboard";
 
 type Intervention = {
   active: boolean;
@@ -11,6 +14,10 @@ type Intervention = {
     dialog?: { type: string; message: string; defaultValue: string };
   } | null;
 };
+
+type Action = Record<string, string | number>;
+type PendingAction =
+  { step: KeyboardStep } | { body: Action; resolve: (ok: boolean) => void };
 
 export function useIntervention(id: string | undefined, running: boolean) {
   return useQuery<Intervention>({
@@ -36,13 +43,31 @@ export default function InterventionPanel({
   const cache = useQueryClient();
   const { message } = App.useApp();
   const [image, setImage] = useState<string>();
-  const [screenshotBlocked, setScreenshotBlocked] = useState(false);
+  const [keyboardFocused, setKeyboardFocused] = useState(false);
   const [busy, setBusy] = useState(false);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [text, setText] = useState("");
   const [key, setKey] = useState("Escape");
   const [dialogText, setDialogText] = useState(info.dialog?.defaultValue || "");
-  const imageRef = useRef<HTMLImageElement>(null);
+  const keyboardRef = useRef<HTMLTextAreaElement>(null);
+  const queue = useRef<PendingAction[]>([]);
+  const sending = useRef(false);
+  const mounted = useRef(false);
+  const refreshScreenshot = useRef<() => void>(() => {});
+
+  function clearQueue() {
+    for (const pending of queue.current.splice(0)) {
+      if ("resolve" in pending) pending.resolve(false);
+    }
+  }
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      clearQueue();
+    };
+  }, []);
 
   useEffect(() => {
     setDialogText(info.dialog?.defaultValue || "");
@@ -50,10 +75,14 @@ export default function InterventionPanel({
 
   useEffect(() => {
     let stopped = false;
+    let capturing = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let objectUrl: string | undefined;
     const controller = new AbortController();
     const refresh = async () => {
+      if (stopped || capturing) return;
+      clearTimeout(timer);
+      capturing = true;
       try {
         const response = await fetch(
           `/api/runs/${id}/intervention/screenshot`,
@@ -66,20 +95,19 @@ export default function InterventionPanel({
           const blob = await response.blob();
           if (!stopped) {
             const next = URL.createObjectURL(blob);
-            setScreenshotBlocked(false);
             setImage(next);
             if (objectUrl) URL.revokeObjectURL(objectUrl);
             objectUrl = next;
           }
-        } else if (response.status === 409 && !stopped) {
-          setScreenshotBlocked(true);
         }
       } catch {
         // The run may finish while a screenshot is being fetched.
       } finally {
+        capturing = false;
         if (!stopped) timer = setTimeout(refresh, 1500);
       }
     };
+    refreshScreenshot.current = () => void refresh();
     void refresh();
     return () => {
       stopped = true;
@@ -89,25 +117,71 @@ export default function InterventionPanel({
     };
   }, [id]);
 
-  async function action(body: Record<string, string | number>) {
-    const setPending =
-      body.type === "dialogAccept" || body.type === "dialogDismiss"
-        ? setDialogBusy
-        : setBusy;
-    setPending(true);
+  async function send(
+    body: Action | { type: "keyboard"; steps: KeyboardStep[] },
+  ) {
     try {
       await api(`/runs/${id}/intervention/actions`, "POST", body);
-      await cache.invalidateQueries({ queryKey: ["intervention", id] });
       return true;
     } catch (error) {
-      message.error((error as Error).message);
+      if (mounted.current) message.error((error as Error).message);
       return false;
     } finally {
-      setPending(false);
+      void cache.invalidateQueries({ queryKey: ["intervention", id] });
     }
   }
 
+  async function flushQueue() {
+    if (sending.current) return;
+    sending.current = true;
+    setBusy(true);
+    let pending: PendingAction | undefined;
+    while (mounted.current && (pending = queue.current.shift())) {
+      let ok: boolean;
+      if ("step" in pending) {
+        const steps = [pending.step];
+        while (steps.length < 32) {
+          const next = queue.current[0];
+          if (!next || !("step" in next)) break;
+          steps.push(next.step);
+          queue.current.shift();
+        }
+        ok = await send({ type: "keyboard", steps });
+      } else {
+        ok = await send(pending.body);
+        pending.resolve(ok);
+      }
+      if (!ok) {
+        clearQueue();
+        break;
+      }
+    }
+    sending.current = false;
+    if (mounted.current) {
+      setBusy(false);
+      refreshScreenshot.current();
+    }
+  }
+
+  async function action(body: Action) {
+    if (body.type === "dialogAccept" || body.type === "dialogDismiss") {
+      setDialogBusy(true);
+      try {
+        return await send(body);
+      } finally {
+        setDialogBusy(false);
+        refreshScreenshot.current();
+      }
+    }
+    return new Promise<boolean>((resolve) => {
+      queue.current.push({ body, resolve });
+      void flushQueue();
+    });
+  }
+
   const dialog = info.dialog;
+  const keyboardEnabled = !!image && canEdit && !dialogBusy && !dialog;
+  const keyboardHelpId = `takeover-keyboard-${id}`;
   return (
     <section className="intervention-panel" aria-label="人工接管">
       <Alert
@@ -116,10 +190,10 @@ export default function InterventionPanel({
         title="等待人工处理"
         description={info.message || "请处理当前页面后继续运行。"}
       />
-      <Typography.Paragraph type="secondary">
-        这是测试正在使用的浏览器。点击画面选择元素，再使用下方控件输入文字或按键；处理完成后继续运行。
-        触发时已开始的浏览器操作可能继续完成；处理后请检查页面状态，再继续运行。
-        {!canEdit && " 当前账号为只读，不能操作浏览器。"}
+      <Typography.Paragraph type="secondary" id={keyboardHelpId}>
+        {canEdit
+          ? "点击画面后直接打字、粘贴或使用 Tab 和方向键。点击画面外或按 Shift+Esc 退出键盘控制。处理完毕后，确认页面状态并继续运行。"
+          : "当前账号可以查看测试浏览器画面。"}
       </Typography.Paragraph>
       {dialog && (
         <div className="intervention-dialog" role="alert">
@@ -154,17 +228,39 @@ export default function InterventionPanel({
           </Space>
         </div>
       )}
+      {keyboardEnabled && (
+        <div className="intervention-keyboard-status">
+          {keyboardFocused ? "键盘已连接" : "点击画面连接键盘"}
+        </div>
+      )}
       <div className="intervention-viewport">
-        {image && !screenshotBlocked ? (
+        <InterventionKeyboard
+          inputRef={keyboardRef}
+          enabled={keyboardEnabled}
+          helpId={keyboardHelpId}
+          onStep={(step) => {
+            queue.current.push({ step });
+            void flushQueue();
+          }}
+          onFocusChange={setKeyboardFocused}
+          onError={(error) => void message.error(error)}
+        />
+        {image && !dialog ? (
           <img
-            ref={imageRef}
             src={image}
             alt="测试浏览器实时画面，点击可操作页面"
             aria-label="接管画面"
+            draggable={false}
             onClick={(event) => {
-              if (!canEdit || busy || dialogBusy || dialog) return;
-              const target = imageRef.current!;
+              if (!keyboardEnabled) return;
+              const target = event.currentTarget;
               const rect = target.getBoundingClientRect();
+              const input = keyboardRef.current;
+              if (input) {
+                input.style.left = `${event.clientX - rect.left}px`;
+                input.style.top = `${event.clientY - rect.top}px`;
+                input.focus({ preventScroll: true });
+              }
               const x = Math.min(
                 target.naturalWidth - 1,
                 Math.max(
@@ -190,9 +286,7 @@ export default function InterventionPanel({
           />
         ) : (
           <div className="intervention-placeholder">
-            {dialog || screenshotBlocked
-              ? "处理浏览器弹框后恢复画面"
-              : "正在读取浏览器画面…"}
+            {dialog ? "处理浏览器弹框后恢复画面" : "正在读取浏览器画面…"}
           </div>
         )}
       </div>

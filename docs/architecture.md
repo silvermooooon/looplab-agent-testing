@@ -682,6 +682,8 @@ flowchart TB
 
 两条通道共用同一个浏览器。实时预览给成员观察页面和最近动作；接管由显式暂停或监听器触发，有编辑权限的成员可在执行报告中操作。原生弹框出现时预览暂停，接管面板通过弹框元数据操作确认或取消。
 
+接管时点击画面会同时选中远端页面位置并聚焦本地键盘操作区。可直接输入文字、提交中文输入法候选、粘贴纯文本，以及使用 Tab、Enter、退格、方向键和全选、撤销、重做快捷键。点击画面外或按 `Shift+Escape` 退出键盘控制。输入按发生顺序排队，相邻键盘事件合批发送。光标移动、删除等按键与文本插入按原顺序执行。队列处理完成后刷新画面，保留远端文本光标并继续遮罩密码输入框。原有文字与按键控件仍可单独操作。
+
 ```mermaid
 sequenceDiagram
   participant W as 持有浏览器的执行器
@@ -701,13 +703,14 @@ sequenceDiagram
   W->>W: 确认弹框和在途操作结束后恢复
 ```
 
-| 接管细节   | 实现                                                                                                                                                                                                                                                                                                         |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 监听       | `watchElement` 约每 250 ms 检测可见性边沿，注册后立即检查；持续可见时不会反复请求。`watchDialog`、`watchResponse` 订阅 Playwright 事件，处理中同一监听器抑制重复请求，结束后继续监听                                                                                                                         |
-| 阻塞点     | 步骤前后检查监听并等待接管队列，流程末尾检查并清理。触发时已发出的操作可能继续完成，操作自己的超时也仍有效。接管期间暂停运行总计时，心跳和取消仍有效                                                                                                                                                         |
-| API        | `GET /api/runs/:rid/intervention` 给成员返回 `{active, info}`；`GET /api/runs/:rid/intervention/screenshot` 通过命令取同一页 PNG；编辑者 `POST /api/runs/:rid/intervention/actions` 提交 `click {x,y}`、`type {text}`、`press {key}`、`scroll {deltaY}`、`dialogAccept {text?}`、`dialogDismiss` 或 `resume` |
-| 命令调度   | `run_interventions` 保存状态，`intervention_commands` 保存短时命令。执行器空闲时约每 200 ms 检查，API 约每 150 ms 等结果，上限 30 秒。活跃接管不存在或命令拒绝返回 `409`，等待超时返回 `504`。已经领取的命令可能继续执行，重试前核对现场                                                                     |
-| 控制与收尾 | 普通操作同一时间只处理一项，弹框确认/取消可先解除阻塞。弹框未处理或普通操作仍在途时拒绝 `resume`。命令完成清空 `action`，输入文本与弹框回复不进入运行事件；取消或异常收尾时清除接管状态并终止未完成命令                                                                                                      |
+| 接管细节   | 实现                                                                                                                                                                                                                                                                                                                             |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 监听       | `watchElement` 约每 250 ms 检测可见性边沿，注册后立即检查；持续可见时不会反复请求。`watchDialog`、`watchResponse` 订阅 Playwright 事件，处理中同一监听器抑制重复请求，结束后继续监听                                                                                                                                             |
+| 阻塞点     | 步骤前后检查监听并等待接管队列，流程末尾检查并清理。触发时已发出的操作可能继续完成，操作自己的超时也仍有效。接管期间暂停运行总计时，心跳和取消仍有效                                                                                                                                                                             |
+| API        | `GET /api/runs/:rid/intervention` 给成员返回 `{active, info}`。`GET /api/runs/:rid/intervention/screenshot` 通过命令取同一页 PNG。编辑者 `POST /api/runs/:rid/intervention/actions` 提交 `click {x,y}`、`type {text}`、`press {key}`、`keyboard {steps}`、`scroll {deltaY}`、`dialogAccept {text?}`、`dialogDismiss` 或 `resume` |
+| 键盘批次   | `keyboard.steps` 最多 32 项，由 `type {text}` 和 `press {key}` 组成。执行器依次将已提交文字插入当前焦点，并转发编辑与导航按键。等待浏览器原生弹框时使用专用确认或取消入口。输入正文不进入运行事件                                                                                                                                |
+| 命令调度   | `run_interventions` 保存状态，`intervention_commands` 保存短时命令。执行器空闲时约每 200 ms 检查，API 约每 150 ms 等结果，上限 30 秒。活跃接管不存在或命令拒绝返回 `409`，等待超时返回 `504`。已经领取的命令可能继续执行，重试前核对现场                                                                                         |
+| 控制与收尾 | 普通操作同一时间只处理一项，弹框确认/取消可先解除阻塞。弹框未处理或普通操作仍在途时拒绝 `resume`。命令完成清空 `action`，输入文本与弹框回复不进入运行事件；取消或异常收尾时清除接管状态并终止未完成命令                                                                                                                          |
 
 实时预览在 [`preview.ts`](../src/server/preview.ts) 和 [`BrowserPreview.tsx`](../web/src/admin/BrowserPreview.tsx) 实现。展开面板且页面可见时，前端每次请求结束约 600 ms 后拉取 `GET /api/runs/:rid/preview`，关闭面板、切后台或结束时停止。请求刷新 `run_previews.requested_at`，执行器约每 500 ms 检查 3 秒观看租约，租约有效才截 JPEG 视口图（质量 55），过期清理。以图像和脱敏元数据计算 `ETag`，相同画面返回 `304`；`204` 通过 `X-Preview-State` 告知等待、弹框或结束。成功响应携带 `X-Preview-Meta`，包含阶段 `investigation`、`replay` 或 `jira`、路径、尺寸、最近动作、采集时间与短时点击点。界面叠加同页、1.5 秒内的可信点击位置。
 
@@ -1055,7 +1058,7 @@ flowchart TB
 | `npm run verify:self-memory`                   | 跨项目偏好、同项目账号隔离、账号页面保存、CAS 冲突、清空及 Git 版本。用 `SELF_TEST_TARGET_MEMORY_DIR` 指向目标记忆目录       | `.data/self-test-memory-result.json`、记忆仓库、截图                   |
 | `npm run verify:self-preview`                  | 延迟真实发送响应以观察即时反馈，检查真实点击帧、关闭停止取帧和权限                                                           | `.data/self-test-preview-result.json`                                  |
 | `npx tsx scripts/verify-self-files.ts`         | 文件库权限、字节一致性、上传节点、文本驱动流程、归档引用、导出和模型读取，截图理解使用[验收 PNG 夹具](images/agent-chat.png) | `.data/self-test-files-result.json`                                    |
-| `npx tsx scripts/verify-self-intervention.ts`  | 本地临时网页的元素、网络和弹框监听，浏览器接管、重复触发、继续与停止                                                         | `.data/self-test-intervention-result.json`                             |
+| `npx tsx scripts/verify-self-intervention.ts`  | 本地临时网页的元素、网络和弹框监听。验证接管画面聚焦、打字、中文输入法、粘贴、编辑与导航按键，另验收重复触发、继续与停止     | `.data/self-test-intervention-result.json`                             |
 | `npx tsx scripts/verify-self-suites.ts`        | 测试组顺序、失败后继续、汇总、环境隔离和复制                                                                                 | `.data/self-test-suites-result.json`                                   |
 | `npx tsx scripts/verify-self-suites-cancel.ts` | 取消运行中的测试组，检查未执行项和后续调度                                                                                   | `.data/self-test-suites-cancel-result.json`                            |
 | `npm run verify:self-jira`                     | 双实例及模拟 Jira，验证登录接管、分阶段工作流、回写核验和选择器修复                                                          | `.data/self-test-jira-result.json`、`.data/jira-login-N.png`、运行报告 |

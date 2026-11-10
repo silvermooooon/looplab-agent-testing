@@ -259,6 +259,7 @@ export class BrowserSession {
       throw new Error("原生浏览器弹框等待处理，请先确认或取消弹框");
     return this.page.screenshot({
       fullPage: false,
+      caret: "initial",
       mask: [this.page.locator("input[type=password]")],
       timeout: 3000,
     });
@@ -339,6 +340,16 @@ export class BrowserSession {
       }
       default:
         throw new Error(`Unsupported manual action: ${action.type}`);
+    }
+  }
+  async manualKeyboard(
+    steps: ({ type: "type"; text: string } | { type: "press"; key: string })[],
+  ) {
+    for (const step of steps) {
+      this.signal.throwIfAborted();
+      if (this.dialog) throw new Error("请先处理浏览器弹框，再继续输入");
+      if (step.type === "type") await this.page.keyboard.insertText(step.text);
+      else await this.page.keyboard.press(step.key);
     }
   }
   private async abortable<T>(promise: Promise<T>): Promise<T> {

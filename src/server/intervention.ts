@@ -10,6 +10,12 @@ type Dialog = { type: string; message: string; defaultValue: string };
 type InterventionInfo = { message: string; trigger: string; dialog?: Dialog };
 type Log = (kind: string, data: unknown) => Promise<void>;
 
+const typeAction = z
+  .object({ type: z.literal("type"), text: z.string().max(10000) })
+  .strict();
+const pressAction = z
+  .object({ type: z.literal("press"), key: z.string().min(1).max(100) })
+  .strict();
 const actionSchema = z.discriminatedUnion("type", [
   z
     .object({
@@ -18,9 +24,16 @@ const actionSchema = z.discriminatedUnion("type", [
       y: z.number().min(0).max(960),
     })
     .strict(),
-  z.object({ type: z.literal("type"), text: z.string().max(10000) }).strict(),
+  typeAction,
+  pressAction,
   z
-    .object({ type: z.literal("press"), key: z.string().min(1).max(100) })
+    .object({
+      type: z.literal("keyboard"),
+      steps: z
+        .array(z.discriminatedUnion("type", [typeAction, pressAction]))
+        .min(1)
+        .max(32),
+    })
     .strict(),
   z
     .object({
@@ -37,6 +50,10 @@ const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("dialogDismiss") }).strict(),
   z.object({ type: z.literal("resume") }).strict(),
 ]);
+type InterventionCommand = {
+  id: string;
+  action: z.infer<typeof actionSchema> | { type: "screenshot" };
+};
 
 export async function runIntervention(
   runId: string,
@@ -75,7 +92,7 @@ export async function runIntervention(
     }
   };
   let inFlight: Promise<boolean> | undefined;
-  const execute = async (command: any): Promise<boolean> => {
+  const execute = async (command: InterventionCommand): Promise<boolean> => {
     const action = command.action;
     try {
       let data: Buffer | undefined;
@@ -88,7 +105,9 @@ export async function runIntervention(
           throw new Error("页面操作进行中，请稍后刷新截图");
         data = await browser.manualScreenshot();
       } else {
-        await browser.manualAction(action);
+        if (action.type === "keyboard")
+          await browser.manualKeyboard(action.steps);
+        else await browser.manualAction(action);
         await syncDialog();
         await log("intervention_action", { type: action.type });
       }
@@ -110,12 +129,16 @@ export async function runIntervention(
         return true;
       }
     } catch (error) {
+      const inputError =
+        action.type === "keyboard" && browser.manualDialog()
+          ? "请先处理浏览器弹框，再继续输入"
+          : "输入未能完成，请检查页面状态后重试";
       await query(
         "UPDATE intervention_commands SET status='failed',action='{}',error=$2 WHERE id=$1",
         [
           command.id,
-          action.type === "type" || action.type === "dialogAccept"
-            ? "输入未能完成，请检查页面状态后重试"
+          ["type", "keyboard", "dialogAccept"].includes(action.type)
+            ? inputError
             : redact(
                 error instanceof Error ? error.message : "操作失败",
                 secrets,
@@ -129,7 +152,7 @@ export async function runIntervention(
     for (;;) {
       signal.throwIfAborted();
       await syncDialog();
-      const command = await one(
+      const command = await one<InterventionCommand>(
         `UPDATE intervention_commands SET status='processing' WHERE id=(
           SELECT id FROM intervention_commands WHERE run_id=$1 AND status='pending' ORDER BY seq LIMIT 1 FOR UPDATE SKIP LOCKED
         ) RETURNING id,action`,
@@ -140,7 +163,9 @@ export async function runIntervention(
         continue;
       }
       const action = command.action;
-      if (["click", "type", "press", "scroll"].includes(action.type)) {
+      if (
+        ["click", "type", "press", "keyboard", "scroll"].includes(action.type)
+      ) {
         if (inFlight) {
           await query(
             "UPDATE intervention_commands SET status='failed',action='{}',error='页面操作尚未完成' WHERE id=$1",
